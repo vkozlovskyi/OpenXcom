@@ -37,6 +37,7 @@ class Pathfinding;
 class Mod;
 class InfoboxOKState;
 class SoldierDiary;
+class AIBridge;
 
 enum BattleActionType { BA_NONE, BA_TURN, BA_WALK, BA_PRIME, BA_THROW, BA_AUTOSHOT, BA_SNAPSHOT, BA_AIMEDSHOT, BA_HIT, BA_USE, BA_LAUNCH, BA_MINDCONTROL, BA_PANIC, BA_RETHINK };
 
@@ -76,6 +77,7 @@ private:
 	BattleAction _currentAction;
 	bool _AISecondMove, _playedAggroSound;
 	bool _endTurnRequested, _endTurnProcessed;
+	AIBridge *_aiBridge;
 
 	/// Ends the turn.
 	void endTurn();

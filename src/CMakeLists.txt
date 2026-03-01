@@ -50,6 +50,7 @@ set ( battlescape_src
   Battlescape/AbortMissionState.cpp
   Battlescape/ActionMenuItem.cpp
   Battlescape/ActionMenuState.cpp
+  Battlescape/AIBridge.cpp
   Battlescape/AliensCrashState.cpp
   Battlescape/AIModule.cpp
   Battlescape/BattleState.cpp

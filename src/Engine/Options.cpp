@@ -144,6 +144,7 @@ void create()
 	_info.push_back(OptionInfo("rootWindowedMode", &rootWindowedMode, false));
 	_info.push_back(OptionInfo("lazyLoadResources", &lazyLoadResources, true));
 	_info.push_back(OptionInfo("backgroundMute", &backgroundMute, false));
+	_info.push_back(OptionInfo("ai-server", &aiServerPort, 0));
 
 	// advanced options
 	_info.push_back(OptionInfo("playIntro", &playIntro, true, "STR_PLAYINTRO", "STR_GENERAL"));
@@ -427,6 +428,8 @@ bool showHelp(int argc, char *argv[])
 	help << "        use PATH as the default Config Folder instead of auto-detecting" << std::endl << std::endl;
 	help << "-master MOD" << std::endl;
 	help << "        set MOD to the current master mod (eg. -master xcom2)" << std::endl << std::endl;
+	help << "-ai-server PORT" << std::endl;
+	help << "        start AI bridge TCP server on PORT for external AI player" << std::endl << std::endl;
 	help << "-KEY VALUE" << std::endl;
 	help << "        override option KEY with VALUE (eg. -displayWidth 640)" << std::endl << std::endl;
 	help << "-version" << std::endl;

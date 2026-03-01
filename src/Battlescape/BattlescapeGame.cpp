@@ -33,6 +33,7 @@
 #include "UnitInfoState.h"
 #include "UnitDieBState.h"
 #include "UnitPanicBState.h"
+#include "AIBridge.h"
 #include "AIModule.h"
 #include "Pathfinding.h"
 #include "../Mod/AlienDeployment.h"
@@ -68,7 +69,7 @@ bool BattlescapeGame::_debugPlay = false;
  * @param save Pointer to the save game.
  * @param parentState Pointer to the parent battlescape state.
  */
-BattlescapeGame::BattlescapeGame(SavedBattleGame *save, BattlescapeState *parentState) : _save(save), _parentState(parentState), _playerPanicHandled(true), _AIActionCounter(0), _AISecondMove(false), _playedAggroSound(false), _endTurnRequested(false), _endTurnProcessed(false)
+BattlescapeGame::BattlescapeGame(SavedBattleGame *save, BattlescapeState *parentState) : _save(save), _parentState(parentState), _playerPanicHandled(true), _AIActionCounter(0), _AISecondMove(false), _playedAggroSound(false), _endTurnRequested(false), _endTurnProcessed(false), _aiBridge(0)
 {
 
 	_currentAction.actor = 0;
@@ -79,6 +80,20 @@ BattlescapeGame::BattlescapeGame(SavedBattleGame *save, BattlescapeState *parent
 
 	checkForCasualties(0, 0, true);
 	cancelCurrentAction();
+
+	if (Options::aiServerPort > 0)
+	{
+		_aiBridge = new AIBridge();
+		if (_aiBridge->start(Options::aiServerPort))
+		{
+			_aiBridge->notifyBattleStart();
+		}
+		else
+		{
+			delete _aiBridge;
+			_aiBridge = 0;
+		}
+	}
 }
 
 
@@ -92,6 +107,7 @@ BattlescapeGame::~BattlescapeGame()
 		delete *i;
 	}
 	cleanupDeleted();
+	delete _aiBridge;
 }
 
 /**
@@ -99,6 +115,12 @@ BattlescapeGame::~BattlescapeGame()
  */
 void BattlescapeGame::think()
 {
+	// poll AI bridge for non-blocking IO (accept, read, write)
+	if (_aiBridge)
+	{
+		_aiBridge->poll();
+	}
+
 	// nothing is happening - see if we need some alien AI or units panicking or what have you
 	if (_states.empty())
 	{
@@ -144,6 +166,11 @@ void BattlescapeGame::think()
 			{
 				_playerPanicHandled = handlePanickingPlayer();
 				_save->getBattleState()->updateSoldierInfo();
+			}
+			// notify AI bridge that player turn is ready
+			if (_aiBridge && _playerPanicHandled)
+			{
+				_aiBridge->notifyTurnStart(_save->getTurn());
 			}
 		}
 	}
