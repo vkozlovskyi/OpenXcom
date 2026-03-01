@@ -18,6 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include <string>
+#include "Position.h"
 #include "../lib/nlohmann/json.hpp"
 
 namespace OpenXcom
@@ -28,6 +29,21 @@ class Language;
 class BattleUnit;
 class BattleItem;
 class Tile;
+
+/**
+ * Parsed command from the AI client.
+ */
+struct AICommand
+{
+	std::string action;   /// "walk","shoot","kneel","throw","prime","select","end_turn"
+	int unitId;           /// target unit ID (-1 for end_turn)
+	Position target;      /// target position for walk/shoot/throw
+	std::string shotType; /// "snap","aimed","auto" (for shoot)
+	std::string hand;     /// "right","left" — which hand's weapon to use
+	int value;            /// fuse timer (for prime)
+
+	AICommand() : unitId(-1), value(0) {}
+};
 
 /**
  * Non-blocking TCP socket server for external AI player control.
@@ -46,6 +62,12 @@ private:
 	int _lastTurnSent;    /// dedup turn_start notifications
 	SavedBattleGame *_save; /// battle state for serialization
 
+	AICommand _pendingCommand;    /// parsed command waiting to be dispatched
+	bool _hasPendingCommand;      /// true if _pendingCommand is valid
+	bool _actionExecuting;        /// true while a dispatched action is animating
+	int _executingUnitId;         /// unit ID of the executing action
+	std::string _executingAction; /// action type of the executing action
+
 	/// Sets a file descriptor to non-blocking mode.
 	bool setNonBlocking(int fd);
 	/// Tries to accept a pending connection.
@@ -60,6 +82,8 @@ private:
 	void sendMessage(const nlohmann::json &msg);
 	/// Closes the client connection (keeps listening).
 	void closeClient();
+	/// Sends an error response to the client.
+	void sendError(const std::string &action, int unitId, const std::string &error);
 
 	/// Serializes the full game state for turn_start.
 	nlohmann::json serializeGameState(int turn, Language *lang) const;
@@ -95,6 +119,17 @@ public:
 
 	/// Returns true if a client is connected.
 	bool isConnected() const;
+
+	/// Returns true if there is a parsed command waiting to be dispatched.
+	bool hasPendingCommand() const;
+	/// Returns and clears the pending command.
+	AICommand consumeCommand();
+	/// Returns true if a dispatched action is still animating.
+	bool isActionExecuting() const;
+	/// Marks that an async action has been dispatched (walk, shoot, throw).
+	void setActionExecuting(int unitId, const std::string &action);
+	/// Sends action_complete to the client.
+	void notifyActionComplete(int unitId, const std::string &action, bool success, const std::string &error = "");
 };
 
 }

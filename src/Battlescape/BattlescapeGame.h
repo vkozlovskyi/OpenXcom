@@ -38,6 +38,7 @@ class Mod;
 class InfoboxOKState;
 class SoldierDiary;
 class AIBridge;
+struct AICommand;
 
 enum BattleActionType { BA_NONE, BA_TURN, BA_WALK, BA_PRIME, BA_THROW, BA_AUTOSHOT, BA_SNAPSHOT, BA_AIMEDSHOT, BA_HIT, BA_USE, BA_LAUNCH, BA_MINDCONTROL, BA_PANIC, BA_RETHINK };
 
@@ -90,6 +91,8 @@ private:
 	std::vector<InfoboxOKState*> _infoboxQueue;
 	/// Shows the infoboxes in the queue (if any).
 	void showInfoBoxQueue();
+	/// Executes a command from the AI bridge.
+	void executeAICommand(const AICommand &cmd);
 public:
 	/// is debug mode enabled in the battlescape?
 	static bool _debugPlay;

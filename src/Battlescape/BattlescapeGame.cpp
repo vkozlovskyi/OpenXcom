@@ -167,12 +167,211 @@ void BattlescapeGame::think()
 				_playerPanicHandled = handlePanickingPlayer();
 				_save->getBattleState()->updateSoldierInfo();
 			}
-			// notify AI bridge that player turn is ready
+			// AI bridge: notify turn start, dispatch commands, track completion
 			if (_aiBridge && _playerPanicHandled)
 			{
 				_aiBridge->notifyTurnStart(_save->getTurn(), _parentState->getGame()->getLanguage());
+
+				if (_aiBridge->isActionExecuting())
+				{
+					// Async action finished (states drained) — notify client
+					_aiBridge->notifyActionComplete(0, "", true);
+				}
+				else if (_aiBridge->hasPendingCommand())
+				{
+					executeAICommand(_aiBridge->consumeCommand());
+				}
 			}
 		}
+	}
+}
+
+/**
+ * Executes a command received from the AI bridge client.
+ * Validates the command, creates a BattleAction, and pushes appropriate states.
+ * @param cmd The parsed AI command.
+ */
+void BattlescapeGame::executeAICommand(const AICommand &cmd)
+{
+	// Helper: find unit by ID
+	BattleUnit *unit = 0;
+	if (cmd.unitId >= 0)
+	{
+		for (std::vector<BattleUnit*>::iterator i = _save->getUnits()->begin(); i != _save->getUnits()->end(); ++i)
+		{
+			if ((*i)->getId() == cmd.unitId)
+			{
+				unit = *i;
+				break;
+			}
+		}
+	}
+
+	// Validate unit exists (except for end_turn)
+	if (cmd.action != "end_turn" && (!unit || unit->isOut()))
+	{
+		_aiBridge->notifyActionComplete(cmd.unitId, cmd.action, false, "invalid_unit");
+		return;
+	}
+
+	// Validate unit belongs to player
+	if (unit && unit->getFaction() != FACTION_PLAYER)
+	{
+		_aiBridge->notifyActionComplete(cmd.unitId, cmd.action, false, "not_player_unit");
+		return;
+	}
+
+	// --- SELECT ---
+	if (cmd.action == "select")
+	{
+		_save->setSelectedUnit(unit);
+		cancelCurrentAction();
+		setupCursor();
+		_parentState->updateSoldierInfo();
+		_aiBridge->notifyActionComplete(cmd.unitId, "select", true);
+	}
+	// --- WALK ---
+	else if (cmd.action == "walk")
+	{
+		_save->setSelectedUnit(unit);
+
+		BattleAction action;
+		action.actor = unit;
+		action.type = BA_WALK;
+		action.target = cmd.target;
+		action.run = false;
+		action.strafe = false;
+
+		_save->getPathfinding()->calculate(unit, cmd.target);
+		if (_save->getPathfinding()->getStartDirection() != -1)
+		{
+			_aiBridge->setActionExecuting(cmd.unitId, "walk");
+			statePushBack(new UnitWalkBState(this, action));
+		}
+		else
+		{
+			_aiBridge->notifyActionComplete(cmd.unitId, "walk", false, "no_path");
+		}
+	}
+	// --- SHOOT ---
+	else if (cmd.action == "shoot")
+	{
+		// Determine which hand/weapon
+		std::string slotName = (cmd.hand == "left") ? "STR_LEFT_HAND" : "STR_RIGHT_HAND";
+		BattleItem *weapon = unit->getItem(slotName);
+		if (!weapon)
+		{
+			_aiBridge->notifyActionComplete(cmd.unitId, "shoot", false, "no_weapon");
+			return;
+		}
+
+		// Determine shot type
+		BattleActionType shotType = BA_SNAPSHOT;
+		if (cmd.shotType == "aimed")
+			shotType = BA_AIMEDSHOT;
+		else if (cmd.shotType == "auto")
+			shotType = BA_AUTOSHOT;
+
+		BattleAction action;
+		action.actor = unit;
+		action.weapon = weapon;
+		action.type = shotType;
+		action.target = cmd.target;
+		action.TU = unit->getActionTUs(shotType, weapon);
+		action.targeting = true;
+
+		// Validate TU
+		if (action.TU > unit->getTimeUnits())
+		{
+			_aiBridge->notifyActionComplete(cmd.unitId, "shoot", false, "not_enough_tu");
+			return;
+		}
+
+		_save->setSelectedUnit(unit);
+		_aiBridge->setActionExecuting(cmd.unitId, "shoot");
+		statePushBack(new UnitTurnBState(this, action));
+		statePushBack(new ProjectileFlyBState(this, action));
+	}
+	// --- THROW ---
+	else if (cmd.action == "throw")
+	{
+		std::string slotName = (cmd.hand == "left") ? "STR_LEFT_HAND" : "STR_RIGHT_HAND";
+		BattleItem *weapon = unit->getItem(slotName);
+		if (!weapon)
+		{
+			_aiBridge->notifyActionComplete(cmd.unitId, "throw", false, "no_item");
+			return;
+		}
+
+		BattleAction action;
+		action.actor = unit;
+		action.weapon = weapon;
+		action.type = BA_THROW;
+		action.target = cmd.target;
+		action.TU = unit->getActionTUs(BA_THROW, weapon);
+		action.targeting = true;
+
+		if (action.TU > unit->getTimeUnits())
+		{
+			_aiBridge->notifyActionComplete(cmd.unitId, "throw", false, "not_enough_tu");
+			return;
+		}
+
+		_save->setSelectedUnit(unit);
+		_aiBridge->setActionExecuting(cmd.unitId, "throw");
+		statePushBack(new UnitTurnBState(this, action));
+		statePushBack(new ProjectileFlyBState(this, action));
+	}
+	// --- KNEEL ---
+	else if (cmd.action == "kneel")
+	{
+		_save->setSelectedUnit(unit);
+		bool ok = kneel(unit);
+		_aiBridge->notifyActionComplete(cmd.unitId, "kneel", ok, ok ? "" : "cannot_kneel");
+	}
+	// --- PRIME ---
+	else if (cmd.action == "prime")
+	{
+		std::string slotName = (cmd.hand == "left") ? "STR_LEFT_HAND" : "STR_RIGHT_HAND";
+		BattleItem *weapon = unit->getItem(slotName);
+		if (!weapon)
+		{
+			_aiBridge->notifyActionComplete(cmd.unitId, "prime", false, "no_item");
+			return;
+		}
+		if (weapon->getRules()->getBattleType() != BT_GRENADE &&
+			weapon->getRules()->getBattleType() != BT_PROXIMITYGRENADE)
+		{
+			_aiBridge->notifyActionComplete(cmd.unitId, "prime", false, "not_grenade");
+			return;
+		}
+
+		int tuCost = unit->getActionTUs(BA_PRIME, weapon);
+		if (tuCost > unit->getTimeUnits())
+		{
+			_aiBridge->notifyActionComplete(cmd.unitId, "prime", false, "not_enough_tu");
+			return;
+		}
+
+		if (unit->spendTimeUnits(tuCost))
+		{
+			weapon->setFuseTimer(cmd.value);
+			_aiBridge->notifyActionComplete(cmd.unitId, "prime", true);
+		}
+		else
+		{
+			_aiBridge->notifyActionComplete(cmd.unitId, "prime", false, "not_enough_tu");
+		}
+	}
+	// --- END TURN ---
+	else if (cmd.action == "end_turn")
+	{
+		_aiBridge->notifyActionComplete(-1, "end_turn", true);
+		requestEndTurn();
+	}
+	else
+	{
+		_aiBridge->notifyActionComplete(cmd.unitId, cmd.action, false, "unknown_action");
 	}
 }
 

@@ -45,7 +45,7 @@ namespace OpenXcom
  * Creates the AIBridge with a reference to the battle state.
  * @param save Pointer to the saved battle game.
  */
-AIBridge::AIBridge(SavedBattleGame *save) : _listenFd(-1), _clientFd(-1), _port(0), _enabled(false), _lastTurnSent(-1), _save(save)
+AIBridge::AIBridge(SavedBattleGame *save) : _listenFd(-1), _clientFd(-1), _port(0), _enabled(false), _lastTurnSent(-1), _save(save), _hasPendingCommand(false), _actionExecuting(false), _executingUnitId(-1)
 {
 }
 
@@ -271,31 +271,91 @@ void AIBridge::tryWrite()
 
 /**
  * Processes a complete JSON-lines message received from the client.
- * Phase 1: echoes back the parsed message for testing.
+ * Parses JSON commands into AICommand struct for BattlescapeGame to dispatch.
  * @param line A single line of JSON text.
  */
 void AIBridge::processMessage(const std::string &line)
 {
 	Log(LOG_DEBUG) << "AIBridge recv: " << line;
 
+	nlohmann::json msg;
 	try
 	{
-		nlohmann::json msg = nlohmann::json::parse(line);
-
-		// Phase 1: echo back for testing
-		nlohmann::json echo;
-		echo["type"] = "echo";
-		echo["data"] = msg;
-		sendMessage(echo);
+		msg = nlohmann::json::parse(line);
 	}
 	catch (const nlohmann::json::parse_error &e)
 	{
 		Log(LOG_WARNING) << "AIBridge: JSON parse error: " << e.what();
-		nlohmann::json err;
-		err["type"] = "error";
-		err["message"] = "invalid JSON";
-		sendMessage(err);
+		nlohmann::json errMsg;
+		errMsg["type"] = "error";
+		errMsg["message"] = "invalid JSON";
+		sendMessage(errMsg);
+		return;
 	}
+
+	// Validate required "action" field
+	if (!msg.contains("action") || !msg["action"].is_string())
+	{
+		nlohmann::json errMsg;
+		errMsg["type"] = "error";
+		errMsg["message"] = "missing 'action' field";
+		sendMessage(errMsg);
+		return;
+	}
+
+	// Reject if we already have a pending command or action is executing
+	if (_hasPendingCommand || _actionExecuting)
+	{
+		sendError(msg["action"].get<std::string>(),
+			msg.value("unit_id", -1), "busy");
+		return;
+	}
+
+	// Parse command
+	AICommand cmd;
+	cmd.action = msg["action"].get<std::string>();
+	cmd.unitId = msg.value("unit_id", -1);
+	cmd.hand = msg.value("hand", "right");
+	cmd.shotType = msg.value("shot_type", "snap");
+	cmd.value = msg.value("fuse", 0);
+
+	// Parse target position [x, y, z]
+	if (msg.contains("target") && msg["target"].is_array() && msg["target"].size() == 3)
+	{
+		cmd.target = Position(
+			msg["target"][0].get<int>(),
+			msg["target"][1].get<int>(),
+			msg["target"][2].get<int>()
+		);
+	}
+
+	// Validate action type
+	if (cmd.action != "select" && cmd.action != "walk" && cmd.action != "shoot" &&
+		cmd.action != "kneel" && cmd.action != "throw" && cmd.action != "prime" &&
+		cmd.action != "end_turn")
+	{
+		sendError(cmd.action, cmd.unitId, "unknown_action");
+		return;
+	}
+
+	// Validate unit_id is present for actions that need it
+	if (cmd.action != "end_turn" && cmd.unitId < 0)
+	{
+		sendError(cmd.action, cmd.unitId, "missing_unit_id");
+		return;
+	}
+
+	// Validate target is present for actions that need it
+	if ((cmd.action == "walk" || cmd.action == "shoot" || cmd.action == "throw") &&
+		!msg.contains("target"))
+	{
+		sendError(cmd.action, cmd.unitId, "missing_target");
+		return;
+	}
+
+	_pendingCommand = cmd;
+	_hasPendingCommand = true;
+	Log(LOG_DEBUG) << "AIBridge: queued command: " << cmd.action << " unit=" << cmd.unitId;
 }
 
 /**
@@ -745,6 +805,83 @@ nlohmann::json AIBridge::serializeTile(Tile *tile) const
 	}
 
 	return j;
+}
+
+// --- Command Handling (Phase 3) ---
+
+/**
+ * Returns true if there is a parsed command waiting to be dispatched.
+ */
+bool AIBridge::hasPendingCommand() const
+{
+	return _hasPendingCommand;
+}
+
+/**
+ * Returns and clears the pending command.
+ */
+AICommand AIBridge::consumeCommand()
+{
+	_hasPendingCommand = false;
+	return _pendingCommand;
+}
+
+/**
+ * Returns true if a dispatched action is still animating.
+ */
+bool AIBridge::isActionExecuting() const
+{
+	return _actionExecuting;
+}
+
+/**
+ * Marks that an async action has been dispatched (walk, shoot, throw).
+ * @param unitId Unit performing the action.
+ * @param action Action type string.
+ */
+void AIBridge::setActionExecuting(int unitId, const std::string &action)
+{
+	_actionExecuting = true;
+	_executingUnitId = unitId;
+	_executingAction = action;
+}
+
+/**
+ * Sends action_complete to the client and resets executing state.
+ * @param unitId Unit that performed the action.
+ * @param action Action type string.
+ * @param success Whether the action succeeded.
+ * @param error Error description if failed.
+ */
+void AIBridge::notifyActionComplete(int unitId, const std::string &action, bool success, const std::string &error)
+{
+	_actionExecuting = false;
+
+	nlohmann::json msg;
+	msg["type"] = "action_complete";
+	msg["action"] = action;
+	msg["unit_id"] = unitId;
+	msg["success"] = success;
+	if (!error.empty())
+		msg["error"] = error;
+	sendMessage(msg);
+}
+
+/**
+ * Sends an error response to the client.
+ * @param action Action that failed.
+ * @param unitId Unit involved.
+ * @param error Error description.
+ */
+void AIBridge::sendError(const std::string &action, int unitId, const std::string &error)
+{
+	nlohmann::json msg;
+	msg["type"] = "action_error";
+	msg["action"] = action;
+	msg["unit_id"] = unitId;
+	msg["error"] = error;
+	sendMessage(msg);
+	Log(LOG_DEBUG) << "AIBridge: error " << error << " for action " << action;
 }
 
 }
