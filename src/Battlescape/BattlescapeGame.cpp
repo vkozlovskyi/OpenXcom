@@ -83,7 +83,7 @@ BattlescapeGame::BattlescapeGame(SavedBattleGame *save, BattlescapeState *parent
 
 	if (Options::aiServerPort > 0)
 	{
-		_aiBridge = new AIBridge();
+		_aiBridge = new AIBridge(_save);
 		if (_aiBridge->start(Options::aiServerPort))
 		{
 			_aiBridge->notifyBattleStart();
@@ -170,7 +170,7 @@ void BattlescapeGame::think()
 			// notify AI bridge that player turn is ready
 			if (_aiBridge && _playerPanicHandled)
 			{
-				_aiBridge->notifyTurnStart(_save->getTurn());
+				_aiBridge->notifyTurnStart(_save->getTurn(), _parentState->getGame()->getLanguage());
 			}
 		}
 	}

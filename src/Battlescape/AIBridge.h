@@ -23,6 +23,12 @@
 namespace OpenXcom
 {
 
+class SavedBattleGame;
+class Language;
+class BattleUnit;
+class BattleItem;
+class Tile;
+
 /**
  * Non-blocking TCP socket server for external AI player control.
  * Accepts a single client connection and exchanges JSON-lines messages.
@@ -38,6 +44,7 @@ private:
 	std::string _recvBuf; /// partial receive buffer
 	std::string _sendBuf; /// pending send buffer
 	int _lastTurnSent;    /// dedup turn_start notifications
+	SavedBattleGame *_save; /// battle state for serialization
 
 	/// Sets a file descriptor to non-blocking mode.
 	bool setNonBlocking(int fd);
@@ -54,9 +61,20 @@ private:
 	/// Closes the client connection (keeps listening).
 	void closeClient();
 
+	/// Serializes the full game state for turn_start.
+	nlohmann::json serializeGameState(int turn, Language *lang) const;
+	/// Serializes a player unit with full stats and inventory.
+	nlohmann::json serializeUnit(BattleUnit *unit, Language *lang) const;
+	/// Serializes an inventory item with TU costs.
+	nlohmann::json serializeItem(BattleItem *item, BattleUnit *owner) const;
+	/// Serializes a visible enemy unit (limited info).
+	nlohmann::json serializeVisibleEnemy(BattleUnit *unit, Language *lang) const;
+	/// Serializes a discovered map tile.
+	nlohmann::json serializeTile(Tile *tile) const;
+
 public:
-	/// Creates the AIBridge (does not start listening yet).
-	AIBridge();
+	/// Creates the AIBridge with a reference to the battle state.
+	AIBridge(SavedBattleGame *save);
 	/// Cleans up sockets.
 	~AIBridge();
 
@@ -70,8 +88,8 @@ public:
 
 	/// Notifies that a battle has started.
 	void notifyBattleStart();
-	/// Notifies that the player's turn has started.
-	void notifyTurnStart(int turn);
+	/// Notifies that the player's turn has started (sends full game state).
+	void notifyTurnStart(int turn, Language *lang);
 	/// Notifies that the battle has ended.
 	void notifyBattleEnd();
 

@@ -17,7 +17,17 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "AIBridge.h"
+#include "BattlescapeGame.h"
 #include "../Engine/Logger.h"
+#include "../Engine/Language.h"
+#include "../Savegame/SavedBattleGame.h"
+#include "../Savegame/BattleUnit.h"
+#include "../Savegame/BattleItem.h"
+#include "../Savegame/Tile.h"
+#include "../Mod/RuleItem.h"
+#include "../Mod/RuleInventory.h"
+#include "../Mod/MapData.h"
+#include "../Mod/Unit.h"
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <netinet/in.h>
@@ -26,14 +36,16 @@
 #include <fcntl.h>
 #include <cerrno>
 #include <cstring>
+#include <set>
 
 namespace OpenXcom
 {
 
 /**
- * Creates the AIBridge. Does not start listening yet.
+ * Creates the AIBridge with a reference to the battle state.
+ * @param save Pointer to the saved battle game.
  */
-AIBridge::AIBridge() : _listenFd(-1), _clientFd(-1), _port(0), _enabled(false), _lastTurnSent(-1)
+AIBridge::AIBridge(SavedBattleGame *save) : _listenFd(-1), _clientFd(-1), _port(0), _enabled(false), _lastTurnSent(-1), _save(save)
 {
 }
 
@@ -294,7 +306,6 @@ void AIBridge::sendMessage(const nlohmann::json &msg)
 {
 	if (_clientFd < 0) return;
 	_sendBuf += msg.dump() + "\n";
-	Log(LOG_DEBUG) << "AIBridge send: " << msg.dump();
 }
 
 /**
@@ -323,18 +334,20 @@ void AIBridge::notifyBattleStart()
 
 /**
  * Notifies that the player's turn has started.
+ * Sends the full game state so the AI client can make decisions.
  * Idempotent — will not send duplicate notifications for the same turn.
  * @param turn Turn number.
+ * @param lang Language for translating unit names.
  */
-void AIBridge::notifyTurnStart(int turn)
+void AIBridge::notifyTurnStart(int turn, Language *lang)
 {
 	if (_lastTurnSent == turn) return;
 	_lastTurnSent = turn;
 
-	nlohmann::json msg;
-	msg["type"] = "turn_start";
-	msg["turn"] = turn;
+	nlohmann::json msg = serializeGameState(turn, lang);
 	sendMessage(msg);
+
+	Log(LOG_INFO) << "AIBridge: sent turn_start with game state (turn " << turn << ")";
 }
 
 /**
@@ -353,6 +366,385 @@ void AIBridge::notifyBattleEnd()
 bool AIBridge::isConnected() const
 {
 	return _clientFd >= 0;
+}
+
+// --- Game State Serialization (Phase 2) ---
+
+/**
+ * Serializes the full battle state into a turn_start JSON message.
+ * Includes player units, visible enemies, and discovered map tiles.
+ * @param turn Current turn number.
+ * @param lang Language for unit name translation.
+ * @return JSON object ready to send.
+ */
+nlohmann::json AIBridge::serializeGameState(int turn, Language *lang) const
+{
+	nlohmann::json msg;
+	msg["type"] = "turn_start";
+	msg["turn"] = turn;
+
+	// Map metadata
+	nlohmann::json map;
+	map["size_x"] = _save->getMapSizeX();
+	map["size_y"] = _save->getMapSizeY();
+	map["size_z"] = _save->getMapSizeZ();
+	map["global_shade"] = _save->getGlobalShade();
+	msg["map"] = map;
+
+	// Player units and visible enemies
+	nlohmann::json units = nlohmann::json::array();
+	nlohmann::json visibleEnemies = nlohmann::json::array();
+	std::set<int> seenEnemyIds;
+
+	for (std::vector<BattleUnit*>::iterator i = _save->getUnits()->begin(); i != _save->getUnits()->end(); ++i)
+	{
+		BattleUnit *unit = *i;
+		if (unit->getFaction() != FACTION_PLAYER) continue;
+		if (unit->isOut()) continue;
+
+		units.push_back(serializeUnit(unit, lang));
+
+		// Collect visible enemies (deduplicated)
+		for (std::vector<BattleUnit*>::iterator e = unit->getVisibleUnits()->begin(); e != unit->getVisibleUnits()->end(); ++e)
+		{
+			BattleUnit *enemy = *e;
+			if (seenEnemyIds.find(enemy->getId()) == seenEnemyIds.end())
+			{
+				seenEnemyIds.insert(enemy->getId());
+				visibleEnemies.push_back(serializeVisibleEnemy(enemy, lang));
+			}
+		}
+	}
+	msg["units"] = units;
+	msg["visible_enemies"] = visibleEnemies;
+
+	// Discovered map tiles
+	nlohmann::json tiles = nlohmann::json::array();
+	int sizeX = _save->getMapSizeX();
+	int sizeY = _save->getMapSizeY();
+	int sizeZ = _save->getMapSizeZ();
+
+	for (int z = 0; z < sizeZ; z++)
+	{
+		for (int y = 0; y < sizeY; y++)
+		{
+			for (int x = 0; x < sizeX; x++)
+			{
+				Tile *tile = _save->getTile(Position(x, y, z));
+				if (!tile) continue;
+				if (!tile->isDiscovered(2)) continue;
+				if (tile->isVoid()) continue;
+
+				tiles.push_back(serializeTile(tile));
+			}
+		}
+	}
+	msg["tiles"] = tiles;
+
+	return msg;
+}
+
+/**
+ * Serializes a player unit with full stats, inventory, and visibility info.
+ * @param unit The player's battle unit.
+ * @param lang Language for name translation.
+ * @return JSON object with unit data.
+ */
+nlohmann::json AIBridge::serializeUnit(BattleUnit *unit, Language *lang) const
+{
+	nlohmann::json j;
+	j["id"] = unit->getId();
+	j["name"] = unit->getName(lang);
+	j["type"] = unit->getType();
+
+	Position pos = unit->getPosition();
+	j["pos"] = { pos.x, pos.y, pos.z };
+	j["direction"] = unit->getDirection();
+
+	// Current and max stats
+	UnitStats *base = unit->getBaseStats();
+	j["tu"] = unit->getTimeUnits();
+	j["tu_max"] = base->tu;
+	j["hp"] = unit->getHealth();
+	j["hp_max"] = base->health;
+	j["energy"] = unit->getEnergy();
+	j["energy_max"] = base->stamina;
+	j["morale"] = unit->getMorale();
+	j["stun"] = unit->getStunlevel();
+	j["kneeling"] = unit->isKneeled();
+	j["fire"] = unit->getFire();
+
+	// Fatal wounds per body part
+	nlohmann::json wounds;
+	wounds["head"] = unit->getFatalWound(BODYPART_HEAD);
+	wounds["torso"] = unit->getFatalWound(BODYPART_TORSO);
+	wounds["right_arm"] = unit->getFatalWound(BODYPART_RIGHTARM);
+	wounds["left_arm"] = unit->getFatalWound(BODYPART_LEFTARM);
+	wounds["right_leg"] = unit->getFatalWound(BODYPART_RIGHTLEG);
+	wounds["left_leg"] = unit->getFatalWound(BODYPART_LEFTLEG);
+	j["fatal_wounds"] = wounds;
+
+	// Current armor values per side
+	nlohmann::json armor;
+	armor["front"] = unit->getArmor(SIDE_FRONT);
+	armor["left"] = unit->getArmor(SIDE_LEFT);
+	armor["right"] = unit->getArmor(SIDE_RIGHT);
+	armor["rear"] = unit->getArmor(SIDE_REAR);
+	armor["under"] = unit->getArmor(SIDE_UNDER);
+	j["armor_current"] = armor;
+
+	// Base stats for AI reasoning
+	nlohmann::json stats;
+	stats["tu"] = base->tu;
+	stats["stamina"] = base->stamina;
+	stats["health"] = base->health;
+	stats["bravery"] = base->bravery;
+	stats["reactions"] = base->reactions;
+	stats["firing"] = base->firing;
+	stats["throwing"] = base->throwing;
+	stats["strength"] = base->strength;
+	stats["melee"] = base->melee;
+	j["stats"] = stats;
+
+	// Inventory items
+	nlohmann::json inv = nlohmann::json::array();
+	for (std::vector<BattleItem*>::iterator it = unit->getInventory()->begin(); it != unit->getInventory()->end(); ++it)
+	{
+		inv.push_back(serializeItem(*it, unit));
+	}
+	j["inventory"] = inv;
+
+	// IDs of visible enemies (full data in top-level visible_enemies)
+	nlohmann::json visIds = nlohmann::json::array();
+	for (std::vector<BattleUnit*>::iterator it = unit->getVisibleUnits()->begin(); it != unit->getVisibleUnits()->end(); ++it)
+	{
+		visIds.push_back((*it)->getId());
+	}
+	j["visible_enemies"] = visIds;
+
+	return j;
+}
+
+/**
+ * Serializes an inventory item with type, ammo, and pre-calculated TU costs.
+ * @param item The battle item.
+ * @param owner The unit carrying this item (for TU cost calculation).
+ * @return JSON object with item data.
+ */
+nlohmann::json AIBridge::serializeItem(BattleItem *item, BattleUnit *owner) const
+{
+	nlohmann::json j;
+	j["id"] = item->getId();
+	j["type"] = item->getRules()->getType();
+
+	if (item->getSlot())
+		j["slot"] = item->getSlot()->getId();
+
+	// Battle type as readable string
+	BattleType bt = item->getRules()->getBattleType();
+	switch (bt)
+	{
+		case BT_FIREARM: j["battle_type"] = "firearm"; break;
+		case BT_AMMO: j["battle_type"] = "ammo"; break;
+		case BT_MELEE: j["battle_type"] = "melee"; break;
+		case BT_GRENADE: j["battle_type"] = "grenade"; break;
+		case BT_PROXIMITYGRENADE: j["battle_type"] = "proximity_grenade"; break;
+		case BT_MEDIKIT: j["battle_type"] = "medikit"; break;
+		case BT_SCANNER: j["battle_type"] = "scanner"; break;
+		case BT_MINDPROBE: j["battle_type"] = "mind_probe"; break;
+		case BT_PSIAMP: j["battle_type"] = "psi_amp"; break;
+		case BT_FLARE: j["battle_type"] = "flare"; break;
+		case BT_CORPSE: j["battle_type"] = "corpse"; break;
+		default: j["battle_type"] = "none"; break;
+	}
+
+	// Ammo info
+	if (item->getAmmoItem())
+	{
+		j["ammo_type"] = item->getAmmoItem()->getRules()->getType();
+		j["ammo_qty"] = item->getAmmoItem()->getAmmoQuantity();
+	}
+	else if (item->getRules()->getClipSize() > 0)
+	{
+		// Built-in ammo (laser weapons, etc.)
+		j["ammo_qty"] = item->getAmmoQuantity();
+	}
+
+	// Grenade fuse timer
+	if (item->getFuseTimer() >= 0)
+	{
+		j["fuse_timer"] = item->getFuseTimer();
+	}
+
+	// Pre-calculated TU costs for weapon actions
+	RuleItem *rules = item->getRules();
+	if (bt == BT_FIREARM || bt == BT_MELEE)
+	{
+		if (rules->getTUSnap() > 0)
+			j["tu_snap"] = owner->getActionTUs(BA_SNAPSHOT, item);
+		if (rules->getTUAimed() > 0)
+			j["tu_aimed"] = owner->getActionTUs(BA_AIMEDSHOT, item);
+		if (rules->getTUAuto() > 0)
+			j["tu_auto"] = owner->getActionTUs(BA_AUTOSHOT, item);
+		if (bt == BT_MELEE || rules->getTUMelee() > 0)
+			j["tu_melee"] = owner->getActionTUs(BA_HIT, item);
+
+		j["power"] = rules->getPower();
+		j["max_range"] = rules->getMaxRange();
+		j["accuracy_snap"] = rules->getAccuracySnap();
+		j["accuracy_aimed"] = rules->getAccuracyAimed();
+		j["accuracy_auto"] = rules->getAccuracyAuto();
+		j["two_handed"] = rules->isTwoHanded();
+	}
+
+	// TU costs for usable items
+	if (bt == BT_MEDIKIT || bt == BT_SCANNER || bt == BT_MINDPROBE || bt == BT_PSIAMP)
+	{
+		j["tu_use"] = owner->getActionTUs(BA_USE, item);
+	}
+
+	// Throw cost
+	if (bt == BT_GRENADE || bt == BT_FIREARM || bt == BT_FLARE)
+	{
+		j["tu_throw"] = owner->getActionTUs(BA_THROW, item);
+	}
+
+	// Medikit quantities
+	if (bt == BT_MEDIKIT)
+	{
+		j["heal_qty"] = item->getHealQuantity();
+		j["painkillers_qty"] = item->getPainKillerQuantity();
+		j["stimulant_qty"] = item->getStimulantQuantity();
+	}
+
+	return j;
+}
+
+/**
+ * Serializes a visible enemy unit with limited info (position, type, direction).
+ * @param unit The enemy unit.
+ * @param lang Language for name translation.
+ * @return JSON object with enemy data.
+ */
+nlohmann::json AIBridge::serializeVisibleEnemy(BattleUnit *unit, Language *lang) const
+{
+	nlohmann::json j;
+	j["id"] = unit->getId();
+	j["type"] = unit->getType();
+	j["name"] = unit->getName(lang);
+
+	Position pos = unit->getPosition();
+	j["pos"] = { pos.x, pos.y, pos.z };
+	j["direction"] = unit->getDirection();
+	j["kneeling"] = unit->isKneeled();
+
+	// Faction (could be hostile or neutral)
+	switch (unit->getFaction())
+	{
+		case FACTION_HOSTILE: j["faction"] = "hostile"; break;
+		case FACTION_NEUTRAL: j["faction"] = "neutral"; break;
+		default: j["faction"] = "unknown"; break;
+	}
+
+	return j;
+}
+
+/**
+ * Serializes a discovered map tile with walkability, walls, and environment.
+ * @param tile The map tile.
+ * @return JSON object with tile data.
+ */
+nlohmann::json AIBridge::serializeTile(Tile *tile) const
+{
+	nlohmann::json j;
+	Position pos = tile->getPosition();
+	j["pos"] = { pos.x, pos.y, pos.z };
+
+	// Floor walkability
+	MapData *floor = tile->getMapData(O_FLOOR);
+	if (floor)
+	{
+		j["floor_tu"] = floor->getTUCost(MT_WALK);
+	}
+
+	// West wall
+	MapData *westWall = tile->getMapData(O_WESTWALL);
+	if (westWall)
+	{
+		j["has_wall_west"] = true;
+		j["wall_west_door"] = westWall->isDoor() || westWall->isUFODoor();
+	}
+	else
+	{
+		j["has_wall_west"] = false;
+	}
+
+	// North wall
+	MapData *northWall = tile->getMapData(O_NORTHWALL);
+	if (northWall)
+	{
+		j["has_wall_north"] = true;
+		j["wall_north_door"] = northWall->isDoor() || northWall->isUFODoor();
+	}
+	else
+	{
+		j["has_wall_north"] = false;
+	}
+
+	// Object (furniture, debris, etc.)
+	MapData *object = tile->getMapData(O_OBJECT);
+	if (object)
+	{
+		j["has_object"] = true;
+		j["object_tu"] = object->getTUCost(MT_WALK);
+		int bigwall = object->getBigWall();
+		if (bigwall > 0)
+			j["bigwall"] = bigwall;
+	}
+	else
+	{
+		j["has_object"] = false;
+	}
+
+	// Tile properties
+	Tile *tileBelow = _save->getTile(Position(pos.x, pos.y, pos.z - 1));
+	j["has_no_floor"] = tile->hasNoFloor(tileBelow);
+	j["terrain_level"] = tile->getTerrainLevel();
+	j["smoke"] = tile->getSmoke();
+	j["fire"] = tile->getFire();
+	j["shade"] = tile->getShade();
+
+	// Grav lift (check all parts)
+	bool isGravLift = false;
+	for (int part = 0; part < 4; part++)
+	{
+		MapData *md = tile->getMapData((TilePart)part);
+		if (md && md->isGravLift()) { isGravLift = true; break; }
+	}
+	if (isGravLift)
+		j["grav_lift"] = true;
+
+	// Ground items
+	if (!tile->getInventory()->empty())
+	{
+		nlohmann::json items = nlohmann::json::array();
+		for (std::vector<BattleItem*>::iterator it = tile->getInventory()->begin(); it != tile->getInventory()->end(); ++it)
+		{
+			nlohmann::json ij;
+			ij["id"] = (*it)->getId();
+			ij["type"] = (*it)->getRules()->getType();
+			items.push_back(ij);
+		}
+		j["items"] = items;
+	}
+
+	// Unit occupying this tile
+	if (tile->getUnit())
+	{
+		j["unit_id"] = tile->getUnit()->getId();
+	}
+
+	return j;
 }
 
 }
