@@ -1262,6 +1262,20 @@ std::vector<int> Pathfinding::findReachable(BattleUnit *unit, int tuMax)
 }
 
 /**
+ * Gets the TU cost stored in a pathfinding node for a given position.
+ * Only meaningful after findReachable() has been called.
+ * @param pos The tile position to query.
+ * @return The TU cost to reach that tile, or -1 if invalid.
+ */
+int Pathfinding::getNodeTUCost(const Position &pos) const
+{
+	int index = _save->getTileIndex(pos);
+	if (index < 0 || index >= _size)
+		return -1;
+	return _nodes[index].getTUCost(false);
+}
+
+/**
  * Gets the strafe move setting.
  * @return Strafe move.
  */

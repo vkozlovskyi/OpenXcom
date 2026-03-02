@@ -54,7 +54,12 @@ def print_state_summary(state):
     print(f"\n{'='*60}")
     print(f"  TURN {state['turn']}")
     print(f"  Map: {state['map']['size_x']}x{state['map']['size_y']}x{state['map']['size_z']}")
-    print(f"  Tiles received: {len(state.get('tiles', []))}")
+
+    # ASCII map info
+    ascii_map = state.get("ascii_map", {})
+    if ascii_map:
+        z_levels = sorted(ascii_map.keys(), key=int)
+        print(f"  ASCII map z-levels: {', '.join(z_levels)}")
     print(f"{'='*60}")
 
     print(f"\n  YOUR UNITS ({len(state['units'])}):")
@@ -87,6 +92,30 @@ def print_state_summary(state):
     print(f"\n  Raw JSON size: {len(raw):,} bytes ({len(raw)//1024} KB)")
 
 
+def print_ascii_map(state, z_level=None):
+    """Print the ASCII map for a given z-level (or z=0 by default)."""
+    ascii_map = state.get("ascii_map", {})
+    if not ascii_map:
+        print("  No ASCII map in state.")
+        return
+
+    if z_level is None:
+        z_level = min(ascii_map.keys(), key=int)
+
+    z_str = str(z_level)
+    if z_str not in ascii_map:
+        print(f"  No map data for z={z_level}. Available: {', '.join(sorted(ascii_map.keys(), key=int))}")
+        return
+
+    print(f"\n  ASCII MAP z={z_level}:")
+    print(f"  Legend: . walkable  # impassable  | west wall  - north wall")
+    print(f"          \\ door  + corner  1-9/A-E your units  X enemy  ~ smoke  * fire")
+    print()
+    for line in ascii_map[z_str].split("\n"):
+        if line:  # skip empty trailing line
+            print(f"  {line}")
+
+
 def send_command(sock, cmd):
     """Send a JSON command and wait for response."""
     line = json.dumps(cmd) + "\n"
@@ -98,6 +127,16 @@ def send_command(sock, cmd):
         if mtype == "action_complete":
             status = "OK" if m.get("success") else f"FAILED: {m.get('error', '?')}"
             print(f"<<< action_complete [{m.get('action')}] unit={m.get('unit_id')}: {status}")
+            # Special handling for get_reachable
+            if m.get("action") == "get_reachable" and m.get("success"):
+                tiles = m.get("tiles", [])
+                print(f"    Reachable tiles: {len(tiles)}")
+                if tiles:
+                    print(f"    Sample (first 10):")
+                    for t in tiles[:10]:
+                        print(f"      [{t[0]:2}, {t[1]:2}, {t[2]}] TU={t[3]}")
+                    if len(tiles) > 10:
+                        print(f"      ... and {len(tiles)-10} more")
         elif mtype == "action_error":
             print(f"<<< action_error [{m.get('action')}]: {m.get('error', '?')}")
         elif mtype == "turn_start":
@@ -121,9 +160,11 @@ def interactive_mode(sock, state):
     print("    kneel <unit_id>")
     print("    throw <unit_id> <x> <y> <z> [right|left]")
     print("    prime <unit_id> [right|left] [fuse=0]")
+    print("    reachable <unit_id>  — get reachable tiles")
+    print("    map [z]             — display ASCII map for z-level")
     print("    end_turn")
     print("    state  — re-print state summary")
-    print("    raw    — print raw JSON of last state")
+    print("    raw    — print raw JSON of last state (no map)")
     print("    unit <unit_id> — print unit details")
     print("    quit")
     print("="*60)
@@ -151,9 +192,15 @@ def interactive_mode(sock, state):
                 print_state_summary(last_state)
 
             elif action == "raw":
-                print(json.dumps(last_state, indent=2)[:5000])
-                if len(json.dumps(last_state)) > 5000:
+                # Print state without ascii_map to keep it readable
+                compact = {k: v for k, v in last_state.items() if k != "ascii_map"}
+                print(json.dumps(compact, indent=2)[:5000])
+                if len(json.dumps(compact)) > 5000:
                     print("... (truncated)")
+
+            elif action == "map":
+                z = int(parts[1]) if len(parts) > 1 else None
+                print_ascii_map(last_state, z)
 
             elif action == "unit":
                 uid = int(parts[1])
@@ -165,6 +212,10 @@ def interactive_mode(sock, state):
             elif action == "select":
                 uid = int(parts[1])
                 msgs = send_command(sock, {"action": "select", "unit_id": uid})
+
+            elif action == "reachable":
+                uid = int(parts[1])
+                msgs = send_command(sock, {"action": "get_reachable", "unit_id": uid})
 
             elif action == "walk":
                 uid = int(parts[1])

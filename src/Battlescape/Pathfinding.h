@@ -99,6 +99,8 @@ public:
 	void setUnit(BattleUnit *unit);
 	/// Gets all reachable tiles, based on cost.
 	std::vector<int> findReachable(BattleUnit *unit, int tuMax);
+	/// Gets the TU cost stored in a node after findReachable().
+	int getNodeTUCost(const Position &pos) const;
 	/// Gets _totalTUCost; finds out whether we can hike somewhere in this turn or not.
 	int getTotalTUCost() const { return _totalTUCost; }
 	/// Gets the path preview setting.

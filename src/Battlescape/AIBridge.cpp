@@ -36,6 +36,7 @@
 #include <fcntl.h>
 #include <cerrno>
 #include <cstring>
+#include <map>
 #include <set>
 
 namespace OpenXcom
@@ -333,7 +334,7 @@ void AIBridge::processMessage(const std::string &line)
 	// Validate action type
 	if (cmd.action != "select" && cmd.action != "walk" && cmd.action != "shoot" &&
 		cmd.action != "kneel" && cmd.action != "throw" && cmd.action != "prime" &&
-		cmd.action != "end_turn")
+		cmd.action != "end_turn" && cmd.action != "get_reachable")
 	{
 		sendError(cmd.action, cmd.unitId, "unknown_action");
 		return;
@@ -479,28 +480,30 @@ nlohmann::json AIBridge::serializeGameState(int turn, Language *lang) const
 	msg["units"] = units;
 	msg["visible_enemies"] = visibleEnemies;
 
-	// Discovered map tiles
-	nlohmann::json tiles = nlohmann::json::array();
+	// ASCII map per z-level (only levels with discovered tiles)
+	nlohmann::json asciiMap;
 	int sizeX = _save->getMapSizeX();
 	int sizeY = _save->getMapSizeY();
 	int sizeZ = _save->getMapSizeZ();
 
 	for (int z = 0; z < sizeZ; z++)
 	{
-		for (int y = 0; y < sizeY; y++)
+		bool hasDiscovered = false;
+		for (int y = 0; y < sizeY && !hasDiscovered; y++)
 		{
-			for (int x = 0; x < sizeX; x++)
+			for (int x = 0; x < sizeX && !hasDiscovered; x++)
 			{
 				Tile *tile = _save->getTile(Position(x, y, z));
-				if (!tile) continue;
-				if (!tile->isDiscovered(2)) continue;
-				if (tile->isVoid()) continue;
-
-				tiles.push_back(serializeTile(tile));
+				if (tile && tile->isDiscovered(2) && !tile->isVoid())
+					hasDiscovered = true;
 			}
 		}
+		if (hasDiscovered)
+		{
+			asciiMap[std::to_string(z)] = serializeAsciiMap(z);
+		}
 	}
-	msg["tiles"] = tiles;
+	msg["ascii_map"] = asciiMap;
 
 	return msg;
 }
@@ -708,6 +711,146 @@ nlohmann::json AIBridge::serializeVisibleEnemy(BattleUnit *unit, Language *lang)
 	}
 
 	return j;
+}
+
+/**
+ * Serializes a z-level as a 2x2-per-tile ASCII map string.
+ * Each game tile maps to a 2-char wide by 2-char tall block:
+ *   [NW corner][north edge]
+ *   [west edge][floor]
+ *
+ * Characters: . walkable, # impassable, space undiscovered/void,
+ * | west wall, - north wall, + corner, \ door,
+ * 1-9/A-E player units (by index), X enemies, ~ smoke, * fire
+ *
+ * @param z The z-level to render.
+ * @return ASCII string with newlines separating rows.
+ */
+std::string AIBridge::serializeAsciiMap(int z) const
+{
+	int sizeX = _save->getMapSizeX();
+	int sizeY = _save->getMapSizeY();
+	int gridW = sizeX * 2;
+	int gridH = sizeY * 2;
+
+	// Build index of player units for numbering (1-9, A-E)
+	std::map<int, char> unitChars; // unit ID -> display char
+	int unitIdx = 0;
+	for (std::vector<BattleUnit*>::iterator i = _save->getUnits()->begin(); i != _save->getUnits()->end(); ++i)
+	{
+		BattleUnit *u = *i;
+		if (u->getFaction() != FACTION_PLAYER || u->isOut()) continue;
+		char c;
+		if (unitIdx < 9)
+			c = '1' + unitIdx;
+		else
+			c = 'A' + (unitIdx - 9);
+		unitChars[u->getId()] = c;
+		unitIdx++;
+	}
+
+	// Initialize grid with spaces (undiscovered)
+	std::vector<char> grid(gridW * gridH, ' ');
+
+	for (int y = 0; y < sizeY; y++)
+	{
+		for (int x = 0; x < sizeX; x++)
+		{
+			Tile *tile = _save->getTile(Position(x, y, z));
+			if (!tile || !tile->isDiscovered(2) || tile->isVoid()) continue;
+
+			int gx = x * 2;
+			int gy = y * 2;
+
+			// NW corner (top-left of 2x2 block) — always '+'
+			grid[gy * gridW + gx] = '+';
+
+			// North edge (top-right of 2x2 block)
+			MapData *northWall = tile->getMapData(O_NORTHWALL);
+			if (northWall)
+			{
+				if (northWall->isDoor() || northWall->isUFODoor())
+					grid[gy * gridW + gx + 1] = '\\';
+				else
+					grid[gy * gridW + gx + 1] = '-';
+			}
+			else
+			{
+				grid[gy * gridW + gx + 1] = ' ';
+			}
+
+			// West edge (bottom-left of 2x2 block)
+			MapData *westWall = tile->getMapData(O_WESTWALL);
+			if (westWall)
+			{
+				if (westWall->isDoor() || westWall->isUFODoor())
+					grid[(gy + 1) * gridW + gx] = '\\';
+				else
+					grid[(gy + 1) * gridW + gx] = '|';
+			}
+			else
+			{
+				grid[(gy + 1) * gridW + gx] = ' ';
+			}
+
+			// Floor (bottom-right of 2x2 block) — the main content cell
+			char floorChar = '.';
+			MapData *floor = tile->getMapData(O_FLOOR);
+			MapData *object = tile->getMapData(O_OBJECT);
+
+			// Check walkability
+			if (!floor && !object)
+			{
+				Tile *tileBelow = _save->getTile(Position(x, y, z - 1));
+				if (tile->hasNoFloor(tileBelow))
+					floorChar = ' '; // void/hole
+				else
+					floorChar = '.';
+			}
+			else if (object && object->getTUCost(MT_WALK) == 255)
+			{
+				floorChar = '#'; // impassable object
+			}
+
+			// Gravlift
+			if ((floor && floor->isGravLift()) || (object && object->isGravLift()))
+				floorChar = '^';
+
+			// Override with environmental effects
+			if (tile->getFire() > 0)
+				floorChar = '*';
+			else if (tile->getSmoke() > 0)
+				floorChar = '~';
+
+			// Override with units
+			BattleUnit *tileUnit = tile->getUnit();
+			if (tileUnit)
+			{
+				if (tileUnit->getFaction() == FACTION_PLAYER && !tileUnit->isOut())
+				{
+					std::map<int, char>::iterator it = unitChars.find(tileUnit->getId());
+					if (it != unitChars.end())
+						floorChar = it->second;
+				}
+				else if (tileUnit->getFaction() == FACTION_HOSTILE && !tileUnit->isOut())
+				{
+					floorChar = 'X';
+				}
+			}
+
+			grid[(gy + 1) * gridW + gx + 1] = floorChar;
+		}
+	}
+
+	// Build string with newlines
+	std::string result;
+	result.reserve(gridH * (gridW + 1));
+	for (int gy = 0; gy < gridH; gy++)
+	{
+		result.append(&grid[gy * gridW], gridW);
+		result += '\n';
+	}
+	return result;
 }
 
 /**

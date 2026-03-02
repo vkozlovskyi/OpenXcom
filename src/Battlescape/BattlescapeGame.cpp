@@ -363,6 +363,30 @@ void BattlescapeGame::executeAICommand(const AICommand &cmd)
 			_aiBridge->notifyActionComplete(cmd.unitId, "prime", false, "not_enough_tu");
 		}
 	}
+	// --- GET REACHABLE ---
+	else if (cmd.action == "get_reachable")
+	{
+		Pathfinding *pf = _save->getPathfinding();
+		std::vector<int> reachable = pf->findReachable(unit, unit->getTimeUnits());
+
+		nlohmann::json tiles = nlohmann::json::array();
+		for (std::vector<int>::const_iterator it = reachable.begin(); it != reachable.end(); ++it)
+		{
+			int x, y, z;
+			_save->getTileCoords(*it, &x, &y, &z);
+			Position pos(x, y, z);
+			int tuCost = pf->getNodeTUCost(pos);
+			tiles.push_back({x, y, z, tuCost});
+		}
+
+		nlohmann::json msg;
+		msg["type"] = "action_complete";
+		msg["action"] = "get_reachable";
+		msg["unit_id"] = cmd.unitId;
+		msg["success"] = true;
+		msg["tiles"] = tiles;
+		_aiBridge->sendMessage(msg);
+	}
 	// --- END TURN ---
 	else if (cmd.action == "end_turn")
 	{

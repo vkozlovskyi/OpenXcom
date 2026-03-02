@@ -78,8 +78,6 @@ private:
 	void tryWrite();
 	/// Processes a complete JSON-lines message from client.
 	void processMessage(const std::string &line);
-	/// Sends a JSON message to the connected client.
-	void sendMessage(const nlohmann::json &msg);
 	/// Closes the client connection (keeps listening).
 	void closeClient();
 	/// Sends an error response to the client.
@@ -95,8 +93,13 @@ private:
 	nlohmann::json serializeVisibleEnemy(BattleUnit *unit, Language *lang) const;
 	/// Serializes a discovered map tile.
 	nlohmann::json serializeTile(Tile *tile) const;
+	/// Serializes a z-level as a 2x2-per-tile ASCII map string.
+	std::string serializeAsciiMap(int z) const;
 
 public:
+	/// Sends a JSON message to the connected client.
+	void sendMessage(const nlohmann::json &msg);
+
 	/// Creates the AIBridge with a reference to the battle state.
 	AIBridge(SavedBattleGame *save);
 	/// Cleans up sockets.
