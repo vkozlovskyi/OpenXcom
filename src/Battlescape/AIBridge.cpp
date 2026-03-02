@@ -28,6 +28,7 @@
 #include "../Mod/RuleInventory.h"
 #include "../Mod/MapData.h"
 #include "../Mod/Unit.h"
+#include "../Mod/MapDataSet.h"
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <netinet/in.h>
@@ -37,6 +38,7 @@
 #include <cerrno>
 #include <cstring>
 #include <map>
+#include <algorithm>
 #include <set>
 
 namespace OpenXcom
@@ -46,7 +48,7 @@ namespace OpenXcom
  * Creates the AIBridge with a reference to the battle state.
  * @param save Pointer to the saved battle game.
  */
-AIBridge::AIBridge(SavedBattleGame *save) : _listenFd(-1), _clientFd(-1), _port(0), _enabled(false), _lastTurnSent(-1), _save(save), _hasPendingCommand(false), _actionExecuting(false), _executingUnitId(-1)
+AIBridge::AIBridge(SavedBattleGame *save) : _listenFd(-1), _clientFd(-1), _port(0), _enabled(false), _lastTurnSent(-1), _currentTurn(0), _lang(0), _save(save), _hasPendingCommand(false), _actionExecuting(false), _executingUnitId(-1)
 {
 }
 
@@ -305,6 +307,23 @@ void AIBridge::processMessage(const std::string &line)
 		return;
 	}
 
+	// Handle get_state synchronously (read-only, works even while action is executing)
+	if (msg["action"].get<std::string>() == "get_state")
+	{
+		if (!_lang)
+		{
+			sendError("get_state", -1, "no_state_yet");
+			return;
+		}
+		nlohmann::json state = serializeGameState(_currentTurn, _lang);
+		state["type"] = "game_state";
+		bool includeMap = msg.value("include_map", false);
+		if (!includeMap)
+			state.erase("ascii_map");
+		sendMessage(state);
+		return;
+	}
+
 	// Reject if we already have a pending command or action is executing
 	if (_hasPendingCommand || _actionExecuting)
 	{
@@ -405,6 +424,8 @@ void AIBridge::notifyTurnStart(int turn, Language *lang)
 {
 	if (_lastTurnSent == turn) return;
 	_lastTurnSent = turn;
+	_currentTurn = turn;
+	_lang = lang;
 
 	nlohmann::json msg = serializeGameState(turn, lang);
 	sendMessage(msg);
@@ -504,6 +525,64 @@ nlohmann::json AIBridge::serializeGameState(int turn, Language *lang) const
 		}
 	}
 	msg["ascii_map"] = asciiMap;
+
+	// UFO and craft bounds — detected by MapDataSet name prefix
+	std::vector<MapDataSet*> *dataSets = _save->getMapDataSets();
+	std::set<int> ufoSets, craftSets;
+	for (size_t i = 0; i < dataSets->size(); i++)
+	{
+		std::string name = dataSets->at(i)->getName();
+		if (name.compare(0, 3, "UFO") == 0 || name.compare(0, 3, "ufo") == 0)
+			ufoSets.insert(i);
+		else if (name.compare(0, 5, "CRAFT") == 0 || name.compare(0, 5, "craft") == 0
+			|| name.compare(0, 2, "UP") == 0 || name.compare(0, 7, "Skyrang") == 0
+			|| name.compare(0, 7, "Avenge") == 0 || name.compare(0, 7, "Lightn") == 0)
+			craftSets.insert(i);
+	}
+
+	int ux0 = sizeX, uy0 = sizeY, uz0 = sizeZ, ux1 = -1, uy1 = -1, uz1 = -1;
+	int cx0 = sizeX, cy0 = sizeY, cz0 = sizeZ, cx1 = -1, cy1 = -1, cz1 = -1;
+	for (int z2 = 0; z2 < sizeZ; z2++)
+	{
+		for (int y2 = 0; y2 < sizeY; y2++)
+		{
+			for (int x2 = 0; x2 < sizeX; x2++)
+			{
+				Tile *t = _save->getTile(Position(x2, y2, z2));
+				if (!t) continue;
+				for (int part = 0; part < 4; part++)
+				{
+					int mdID, mdsID;
+					t->getMapData(&mdID, &mdsID, (TilePart)part);
+					if (mdsID < 0) continue;
+					if (ufoSets.count(mdsID))
+					{
+						if (x2 < ux0) ux0 = x2; if (x2 > ux1) ux1 = x2;
+						if (y2 < uy0) uy0 = y2; if (y2 > uy1) uy1 = y2;
+						if (z2 < uz0) uz0 = z2; if (z2 > uz1) uz1 = z2;
+						break;
+					}
+					else if (craftSets.count(mdsID))
+					{
+						if (x2 < cx0) cx0 = x2; if (x2 > cx1) cx1 = x2;
+						if (y2 < cy0) cy0 = y2; if (y2 > cy1) cy1 = y2;
+						if (z2 < cz0) cz0 = z2; if (z2 > cz1) cz1 = z2;
+						break;
+					}
+				}
+			}
+		}
+	}
+	if (ux1 >= 0)
+	{
+		msg["ufo_bounds"] = {{"x_min", ux0}, {"y_min", uy0}, {"z_min", uz0},
+		                     {"x_max", ux1}, {"y_max", uy1}, {"z_max", uz1}};
+	}
+	if (cx1 >= 0)
+	{
+		msg["craft_bounds"] = {{"x_min", cx0}, {"y_min", cy0}, {"z_min", cz0},
+		                       {"x_max", cx1}, {"y_max", cy1}, {"z_max", cz1}};
+	}
 
 	return msg;
 }
@@ -733,6 +812,18 @@ std::string AIBridge::serializeAsciiMap(int z) const
 	int gridW = sizeX * 2;
 	int gridH = sizeY * 2;
 
+	// Build set of visible enemy IDs (only show enemies the player can actually see)
+	std::set<int> visibleEnemyIds;
+	for (std::vector<BattleUnit*>::iterator i = _save->getUnits()->begin(); i != _save->getUnits()->end(); ++i)
+	{
+		BattleUnit *u = *i;
+		if (u->getFaction() != FACTION_PLAYER || u->isOut()) continue;
+		for (std::vector<BattleUnit*>::iterator j = u->getVisibleUnits()->begin(); j != u->getVisibleUnits()->end(); ++j)
+		{
+			visibleEnemyIds.insert((*j)->getId());
+		}
+	}
+
 	// Build index of player units for numbering (1-9, A-E)
 	std::map<int, char> unitChars; // unit ID -> display char
 	int unitIdx = 0;
@@ -772,7 +863,15 @@ std::string AIBridge::serializeAsciiMap(int z) const
 				if (northWall->isDoor() || northWall->isUFODoor())
 					grid[gy * gridW + gx + 1] = '\\';
 				else
-					grid[gy * gridW + gx + 1] = '-';
+				{
+					int armor = northWall->getArmor();
+					if (armor >= 80)
+						grid[gy * gridW + gx + 1] = '='; // UFO hull
+					else if (armor <= 20)
+						grid[gy * gridW + gx + 1] = ';'; // fence/light
+					else
+						grid[gy * gridW + gx + 1] = '-'; // regular wall
+				}
 			}
 			else
 			{
@@ -786,7 +885,15 @@ std::string AIBridge::serializeAsciiMap(int z) const
 				if (westWall->isDoor() || westWall->isUFODoor())
 					grid[(gy + 1) * gridW + gx] = '\\';
 				else
-					grid[(gy + 1) * gridW + gx] = '|';
+				{
+					int armor = westWall->getArmor();
+					if (armor >= 80)
+						grid[(gy + 1) * gridW + gx] = '!'; // UFO hull
+					else if (armor <= 20)
+						grid[(gy + 1) * gridW + gx] = ':'; // fence/light
+					else
+						grid[(gy + 1) * gridW + gx] = '|'; // regular wall
+				}
 			}
 			else
 			{
@@ -832,7 +939,8 @@ std::string AIBridge::serializeAsciiMap(int z) const
 					if (it != unitChars.end())
 						floorChar = it->second;
 				}
-				else if (tileUnit->getFaction() == FACTION_HOSTILE && !tileUnit->isOut())
+				else if (tileUnit->getFaction() == FACTION_HOSTILE && !tileUnit->isOut()
+				&& visibleEnemyIds.count(tileUnit->getId()))
 				{
 					floorChar = 'X';
 				}
@@ -842,12 +950,18 @@ std::string AIBridge::serializeAsciiMap(int z) const
 		}
 	}
 
-	// Build string with newlines
+	// Build string with newlines, trimming trailing spaces per row
 	std::string result;
 	result.reserve(gridH * (gridW + 1));
 	for (int gy = 0; gy < gridH; gy++)
 	{
-		result.append(&grid[gy * gridW], gridW);
+		int end = gridW;
+		while (end > 0 && grid[gy * gridW + end - 1] == ' ')
+			end--;
+		if (end > 0)
+		{
+			result.append(&grid[gy * gridW], end);
+		}
 		result += '\n';
 	}
 	return result;
@@ -1008,6 +1122,42 @@ void AIBridge::notifyActionComplete(int unitId, const std::string &action, bool 
 	msg["success"] = success;
 	if (!error.empty())
 		msg["error"] = error;
+
+	// Enrich with unit state after action
+	if (success && unitId >= 0)
+	{
+		BattleUnit *unit = _save->getUnits()->at(0); // fallback
+		for (std::vector<BattleUnit*>::iterator i = _save->getUnits()->begin(); i != _save->getUnits()->end(); ++i)
+		{
+			if ((*i)->getId() == unitId) { unit = *i; break; }
+		}
+		if (unit && unit->getId() == unitId)
+		{
+			Position pos = unit->getPosition();
+			msg["pos"] = {pos.x, pos.y, pos.z};
+			msg["tu"] = unit->getTimeUnits();
+			msg["energy"] = unit->getEnergy();
+			msg["hp"] = unit->getHealth();
+
+			// Visible enemies after this action
+			nlohmann::json enemies = nlohmann::json::array();
+			for (std::vector<BattleUnit*>::iterator j = _save->getUnits()->begin(); j != _save->getUnits()->end(); ++j)
+			{
+				BattleUnit *enemy = *j;
+				if (enemy->getFaction() != FACTION_HOSTILE || enemy->isOut()) continue;
+				if (std::find(unit->getVisibleUnits()->begin(), unit->getVisibleUnits()->end(), enemy) != unit->getVisibleUnits()->end())
+				{
+					nlohmann::json e;
+					e["id"] = enemy->getId();
+					Position ep = enemy->getPosition();
+					e["pos"] = {ep.x, ep.y, ep.z};
+					enemies.push_back(e);
+				}
+			}
+			msg["visible_enemies"] = enemies;
+		}
+	}
+
 	sendMessage(msg);
 }
 

@@ -60,6 +60,8 @@ private:
 	std::string _recvBuf; /// partial receive buffer
 	std::string _sendBuf; /// pending send buffer
 	int _lastTurnSent;    /// dedup turn_start notifications
+	int _currentTurn;     /// current turn number (for get_state)
+	Language *_lang;      /// language pointer (for get_state serialization)
 	SavedBattleGame *_save; /// battle state for serialization
 
 	AICommand _pendingCommand;    /// parsed command waiting to be dispatched
