@@ -203,6 +203,7 @@ void AIBridge::tryAccept()
 	_clientFd = fd;
 	_recvBuf.clear();
 	_sendBuf.clear();
+	_lastTurnSent = -1; // reset so turn_start is re-sent to the new client
 
 	Log(LOG_INFO) << "AIBridge: client connected";
 
@@ -865,6 +866,16 @@ void AIBridge::notifyActionComplete(int unitId, const std::string &action, bool 
 	if (!error.empty())
 		msg["error"] = error;
 	sendMessage(msg);
+}
+
+/**
+ * Sends action_complete for the currently executing action using stored unit/action.
+ * @param success Whether the action succeeded.
+ * @param error Error description if failed.
+ */
+void AIBridge::notifyCurrentActionComplete(bool success, const std::string &error)
+{
+	notifyActionComplete(_executingUnitId, _executingAction, success, error);
 }
 
 /**

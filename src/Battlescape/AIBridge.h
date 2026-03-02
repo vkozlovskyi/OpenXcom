@@ -130,6 +130,8 @@ public:
 	void setActionExecuting(int unitId, const std::string &action);
 	/// Sends action_complete to the client.
 	void notifyActionComplete(int unitId, const std::string &action, bool success, const std::string &error = "");
+	/// Sends action_complete for the currently executing action.
+	void notifyCurrentActionComplete(bool success, const std::string &error = "");
 };
 
 }

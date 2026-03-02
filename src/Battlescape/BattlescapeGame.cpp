@@ -175,7 +175,7 @@ void BattlescapeGame::think()
 				if (_aiBridge->isActionExecuting())
 				{
 					// Async action finished (states drained) — notify client
-					_aiBridge->notifyActionComplete(0, "", true);
+					_aiBridge->notifyCurrentActionComplete(true);
 				}
 				else if (_aiBridge->hasPendingCommand())
 				{
