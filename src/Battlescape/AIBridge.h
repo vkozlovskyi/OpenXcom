@@ -18,6 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include <string>
+#include <map>
 #include "Position.h"
 #include "../lib/nlohmann/json.hpp"
 
@@ -96,7 +97,7 @@ private:
 	/// Serializes a discovered map tile.
 	nlohmann::json serializeTile(Tile *tile) const;
 	/// Serializes a z-level as a 2x2-per-tile ASCII map string.
-	std::string serializeAsciiMap(int z) const;
+	std::string serializeAsciiMap(int z, const std::map<int, char> &dataSetChars) const;
 
 public:
 	/// Sends a JSON message to the connected client.

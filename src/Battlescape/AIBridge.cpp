@@ -319,7 +319,10 @@ void AIBridge::processMessage(const std::string &line)
 		state["type"] = "game_state";
 		bool includeMap = msg.value("include_map", false);
 		if (!includeMap)
+		{
 			state.erase("ascii_map");
+			state.erase("map_legend");
+		}
 		sendMessage(state);
 		return;
 	}
@@ -501,12 +504,51 @@ nlohmann::json AIBridge::serializeGameState(int turn, Language *lang) const
 	msg["units"] = units;
 	msg["visible_enemies"] = visibleEnemies;
 
-	// ASCII map per z-level (only levels with discovered tiles)
-	nlohmann::json asciiMap;
+	// Build MapDataSet-to-character mapping for building type display
 	int sizeX = _save->getMapSizeX();
 	int sizeY = _save->getMapSizeY();
 	int sizeZ = _save->getMapSizeZ();
+	std::vector<MapDataSet*> *dataSets = _save->getMapDataSets();
+	std::set<int> ufoSets, craftSets;
+	std::map<int, char> dataSetChars; // mdsID -> floor display char
+	nlohmann::json mapLegend;
+	char nextChar = 'a';
+	for (size_t i = 0; i < dataSets->size(); i++)
+	{
+		std::string name = dataSets->at(i)->getName();
+		// X-COM 1 UFOs: UFO1, U_EXT02, U_WALL02, U_BITS, U_DISEC2, U_OPER2, U_PODS
+		// TFTD UFOs: UEXT2, UEXT3, UINT1, UINT2, UINT3
+		if (name.compare(0, 3, "UFO") == 0 || name.compare(0, 2, "U_") == 0
+			|| name.compare(0, 4, "UEXT") == 0 || name.compare(0, 4, "UINT") == 0)
+		{
+			ufoSets.insert(i);
+			dataSetChars[i] = 'u';
+		}
+		// X-COM 1 crafts: PLANE, LIGHTNIN, AVENGER
+		// TFTD crafts: TRITON, HAMMER, LEVIATH
+		else if (name == "PLANE" || name == "LIGHTNIN" || name == "AVENGER"
+			|| name == "TRITON" || name == "HAMMER" || name == "LEVIATH")
+		{
+			craftSets.insert(i);
+			dataSetChars[i] = 's';
+		}
+		else if (name != "BLANKS" && nextChar <= 'z')
+		{
+			dataSetChars[i] = nextChar;
+			mapLegend[std::string(1, nextChar)] = name;
+			nextChar++;
+			// skip 's' and 'u' — reserved for craft/UFO
+			if (nextChar == 's' || nextChar == 'u') nextChar++;
+			if (nextChar == 's' || nextChar == 'u') nextChar++;
+		}
+	}
+	mapLegend["u"] = "UFO";
+	mapLegend["s"] = "craft";
+	mapLegend["/"] = "stairs";
+	mapLegend["^"] = "gravlift";
 
+	// ASCII map per z-level (only levels with discovered tiles)
+	nlohmann::json asciiMap;
 	for (int z = 0; z < sizeZ; z++)
 	{
 		bool hasDiscovered = false;
@@ -521,24 +563,11 @@ nlohmann::json AIBridge::serializeGameState(int turn, Language *lang) const
 		}
 		if (hasDiscovered)
 		{
-			asciiMap[std::to_string(z)] = serializeAsciiMap(z);
+			asciiMap[std::to_string(z)] = serializeAsciiMap(z, dataSetChars);
 		}
 	}
 	msg["ascii_map"] = asciiMap;
-
-	// UFO and craft bounds — detected by MapDataSet name prefix
-	std::vector<MapDataSet*> *dataSets = _save->getMapDataSets();
-	std::set<int> ufoSets, craftSets;
-	for (size_t i = 0; i < dataSets->size(); i++)
-	{
-		std::string name = dataSets->at(i)->getName();
-		if (name.compare(0, 3, "UFO") == 0 || name.compare(0, 3, "ufo") == 0)
-			ufoSets.insert(i);
-		else if (name.compare(0, 5, "CRAFT") == 0 || name.compare(0, 5, "craft") == 0
-			|| name.compare(0, 2, "UP") == 0 || name.compare(0, 7, "Skyrang") == 0
-			|| name.compare(0, 7, "Avenge") == 0 || name.compare(0, 7, "Lightn") == 0)
-			craftSets.insert(i);
-	}
+	msg["map_legend"] = mapLegend;
 
 	int ux0 = sizeX, uy0 = sizeY, uz0 = sizeZ, ux1 = -1, uy1 = -1, uz1 = -1;
 	int cx0 = sizeX, cy0 = sizeY, cz0 = sizeZ, cx1 = -1, cy1 = -1, cz1 = -1;
@@ -549,7 +578,7 @@ nlohmann::json AIBridge::serializeGameState(int turn, Language *lang) const
 			for (int x2 = 0; x2 < sizeX; x2++)
 			{
 				Tile *t = _save->getTile(Position(x2, y2, z2));
-				if (!t) continue;
+				if (!t || !t->isDiscovered(2)) continue;
 				for (int part = 0; part < 4; part++)
 				{
 					int mdID, mdsID;
@@ -798,14 +827,14 @@ nlohmann::json AIBridge::serializeVisibleEnemy(BattleUnit *unit, Language *lang)
  *   [NW corner][north edge]
  *   [west edge][floor]
  *
- * Characters: . walkable, # impassable, space undiscovered/void,
- * | west wall, - north wall, + corner, \ door,
- * 1-9/A-E player units (by index), X enemies, ~ smoke, * fire
+ * Characters: a-z building/terrain type (see map_legend), # impassable, space undiscovered/void,
+ * | west wall, - north wall, + corner, \ door, ! = UFO hull, : ; fence,
+ * / stairs, ^ gravlift, 1-9/A-E player units (by index), X enemies, ~ smoke, * fire
  *
  * @param z The z-level to render.
  * @return ASCII string with newlines separating rows.
  */
-std::string AIBridge::serializeAsciiMap(int z) const
+std::string AIBridge::serializeAsciiMap(int z, const std::map<int, char> &dataSetChars) const
 {
 	int sizeX = _save->getMapSizeX();
 	int sizeY = _save->getMapSizeY();
@@ -901,7 +930,26 @@ std::string AIBridge::serializeAsciiMap(int z) const
 			}
 
 			// Floor (bottom-right of 2x2 block) — the main content cell
-			char floorChar = '.';
+			// Determine zone character from MapDataSet (building type)
+			char zoneChar = '.';
+			int zonePriority = 0; // 0=default, 1=named, 2=craft, 3=UFO
+			for (int part = 0; part < 4; part++)
+			{
+				int mdID, mdsID;
+				tile->getMapData(&mdID, &mdsID, (TilePart)part);
+				if (mdsID < 0) continue;
+				std::map<int, char>::const_iterator it = dataSetChars.find(mdsID);
+				if (it != dataSetChars.end())
+				{
+					int p = (it->second == 'u') ? 3 : (it->second == 's') ? 2 : 1;
+					if (p > zonePriority)
+					{
+						zonePriority = p;
+						zoneChar = it->second;
+					}
+				}
+			}
+			char floorChar = zoneChar;
 			MapData *floor = tile->getMapData(O_FLOOR);
 			MapData *object = tile->getMapData(O_OBJECT);
 
@@ -911,13 +959,15 @@ std::string AIBridge::serializeAsciiMap(int z) const
 				Tile *tileBelow = _save->getTile(Position(x, y, z - 1));
 				if (tile->hasNoFloor(tileBelow))
 					floorChar = ' '; // void/hole
-				else
-					floorChar = '.';
 			}
 			else if (object && object->getTUCost(MT_WALK) == 255)
 			{
 				floorChar = '#'; // impassable object
 			}
+
+			// Stairs (terrainLevel <= -16 means stair top, auto z-transition)
+			if (tile->getTerrainLevel() <= -16)
+				floorChar = '/';
 
 			// Gravlift
 			if ((floor && floor->isGravLift()) || (object && object->isGravLift()))
