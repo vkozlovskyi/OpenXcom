@@ -1017,104 +1017,6 @@ std::string AIBridge::serializeAsciiMap(int z, const std::map<int, char> &dataSe
 	return result;
 }
 
-/**
- * Serializes a discovered map tile with walkability, walls, and environment.
- * @param tile The map tile.
- * @return JSON object with tile data.
- */
-nlohmann::json AIBridge::serializeTile(Tile *tile) const
-{
-	nlohmann::json j;
-	Position pos = tile->getPosition();
-	j["pos"] = { pos.x, pos.y, pos.z };
-
-	// Floor walkability
-	MapData *floor = tile->getMapData(O_FLOOR);
-	if (floor)
-	{
-		j["floor_tu"] = floor->getTUCost(MT_WALK);
-	}
-
-	// West wall
-	MapData *westWall = tile->getMapData(O_WESTWALL);
-	if (westWall)
-	{
-		j["has_wall_west"] = true;
-		j["wall_west_door"] = westWall->isDoor() || westWall->isUFODoor();
-	}
-	else
-	{
-		j["has_wall_west"] = false;
-	}
-
-	// North wall
-	MapData *northWall = tile->getMapData(O_NORTHWALL);
-	if (northWall)
-	{
-		j["has_wall_north"] = true;
-		j["wall_north_door"] = northWall->isDoor() || northWall->isUFODoor();
-	}
-	else
-	{
-		j["has_wall_north"] = false;
-	}
-
-	// Object (furniture, debris, etc.)
-	MapData *object = tile->getMapData(O_OBJECT);
-	if (object)
-	{
-		j["has_object"] = true;
-		j["object_tu"] = object->getTUCost(MT_WALK);
-		int bigwall = object->getBigWall();
-		if (bigwall > 0)
-			j["bigwall"] = bigwall;
-	}
-	else
-	{
-		j["has_object"] = false;
-	}
-
-	// Tile properties
-	Tile *tileBelow = _save->getTile(Position(pos.x, pos.y, pos.z - 1));
-	j["has_no_floor"] = tile->hasNoFloor(tileBelow);
-	j["terrain_level"] = tile->getTerrainLevel();
-	j["smoke"] = tile->getSmoke();
-	j["fire"] = tile->getFire();
-	j["shade"] = tile->getShade();
-
-	// Grav lift (check all parts)
-	bool isGravLift = false;
-	for (int part = 0; part < 4; part++)
-	{
-		MapData *md = tile->getMapData((TilePart)part);
-		if (md && md->isGravLift()) { isGravLift = true; break; }
-	}
-	if (isGravLift)
-		j["grav_lift"] = true;
-
-	// Ground items
-	if (!tile->getInventory()->empty())
-	{
-		nlohmann::json items = nlohmann::json::array();
-		for (std::vector<BattleItem*>::iterator it = tile->getInventory()->begin(); it != tile->getInventory()->end(); ++it)
-		{
-			nlohmann::json ij;
-			ij["id"] = (*it)->getId();
-			ij["type"] = (*it)->getRules()->getType();
-			items.push_back(ij);
-		}
-		j["items"] = items;
-	}
-
-	// Unit occupying this tile
-	if (tile->getUnit())
-	{
-		j["unit_id"] = tile->getUnit()->getId();
-	}
-
-	return j;
-}
-
 // --- Command Handling (Phase 3) ---
 
 /**
@@ -1176,12 +1078,12 @@ void AIBridge::notifyActionComplete(int unitId, const std::string &action, bool 
 	// Enrich with unit state after action
 	if (success && unitId >= 0)
 	{
-		BattleUnit *unit = _save->getUnits()->at(0); // fallback
+		BattleUnit *unit = 0;
 		for (std::vector<BattleUnit*>::iterator i = _save->getUnits()->begin(); i != _save->getUnits()->end(); ++i)
 		{
 			if ((*i)->getId() == unitId) { unit = *i; break; }
 		}
-		if (unit && unit->getId() == unitId)
+		if (unit)
 		{
 			Position pos = unit->getPosition();
 			msg["pos"] = {pos.x, pos.y, pos.z};

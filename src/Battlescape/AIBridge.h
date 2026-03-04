@@ -94,8 +94,6 @@ private:
 	nlohmann::json serializeItem(BattleItem *item, BattleUnit *owner) const;
 	/// Serializes a visible enemy unit (limited info).
 	nlohmann::json serializeVisibleEnemy(BattleUnit *unit, Language *lang) const;
-	/// Serializes a discovered map tile.
-	nlohmann::json serializeTile(Tile *tile) const;
 	/// Serializes a z-level as a 2x2-per-tile ASCII map string.
 	std::string serializeAsciiMap(int z, const std::map<int, char> &dataSetChars) const;
 
