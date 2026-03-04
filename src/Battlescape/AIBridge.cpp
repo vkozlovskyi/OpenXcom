@@ -154,17 +154,15 @@ void AIBridge::poll()
 
 	int maxfd = -1;
 
-	if (_clientFd < 0)
-	{
-		// No client — check for incoming connections
-		FD_SET(_listenFd, &readfds);
-		maxfd = _listenFd;
-	}
-	else
+	// Always listen for new connections (allows replacing old client)
+	FD_SET(_listenFd, &readfds);
+	maxfd = _listenFd;
+
+	if (_clientFd >= 0)
 	{
 		// Have client — check for incoming data
 		FD_SET(_clientFd, &readfds);
-		maxfd = _clientFd;
+		if (_clientFd > maxfd) maxfd = _clientFd;
 		if (!_sendBuf.empty())
 		{
 			FD_SET(_clientFd, &writefds);
@@ -178,7 +176,7 @@ void AIBridge::poll()
 	int ret = select(maxfd + 1, &readfds, &writefds, NULL, &tv);
 	if (ret <= 0) return;
 
-	if (_clientFd < 0 && FD_ISSET(_listenFd, &readfds))
+	if (FD_ISSET(_listenFd, &readfds))
 	{
 		tryAccept();
 	}
@@ -202,11 +200,20 @@ void AIBridge::tryAccept()
 	int fd = accept(_listenFd, (struct sockaddr*)&clientAddr, &addrLen);
 	if (fd < 0) return;
 
+	// Drop existing client if any (allows reconnection)
+	if (_clientFd >= 0)
+	{
+		Log(LOG_INFO) << "AIBridge: dropping old client for new connection";
+		closeClient();
+	}
+
 	setNonBlocking(fd);
 	_clientFd = fd;
 	_recvBuf.clear();
 	_sendBuf.clear();
 	_lastTurnSent = -1; // reset so turn_start is re-sent to the new client
+	_hasPendingCommand = false;
+	_actionExecuting = false;
 
 	Log(LOG_INFO) << "AIBridge: client connected";
 
