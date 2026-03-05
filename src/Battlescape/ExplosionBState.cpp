@@ -32,6 +32,7 @@
 #include "../Mod/RuleItem.h"
 #include "../Mod/Armor.h"
 #include "../Engine/RNG.h"
+#include "AIBridge.h"
 
 namespace OpenXcom
 {
@@ -237,6 +238,23 @@ void ExplosionBState::explode()
 			ItemDamageType type = _item->getRules()->getDamageType();
 
 			victim = save->getTileEngine()->hit(_center, _power, type, _unit);
+
+			// AI Bridge event: shot result (hit or miss for direct fire)
+			AIBridge *bridge = _parent->getAIBridge();
+			if (bridge && _unit)
+			{
+				nlohmann::json ev;
+				ev["type"] = "shot_result";
+				ev["shooter"] = _unit->getId();
+				ev["weapon"] = _item->getRules()->getName();
+				ev["hit"] = (victim != 0);
+				if (victim)
+				{
+					ev["target"] = victim->getId();
+					ev["target_faction"] = victim->getFaction() == FACTION_PLAYER ? "player" : victim->getFaction() == FACTION_HOSTILE ? "hostile" : "neutral";
+				}
+				bridge->pushEvent(ev);
+			}
 		}
 		// check if this unit turns others into zombies
 		if (!_item->getRules()->getZombieUnit().empty()

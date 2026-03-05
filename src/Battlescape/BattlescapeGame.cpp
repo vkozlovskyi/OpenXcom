@@ -909,6 +909,34 @@ void BattlescapeGame::checkForCasualties(BattleItem *murderweapon, BattleUnit *o
 			}
 		}
 
+		// AI Bridge event: unit killed or stunned
+		if (_aiBridge && killStat.status == STATUS_DEAD)
+		{
+			nlohmann::json ev;
+			ev["type"] = "unit_killed";
+			ev["unit_id"] = victim->getId();
+			ev["faction"] = victim->getFaction() == FACTION_PLAYER ? "player" : victim->getFaction() == FACTION_HOSTILE ? "hostile" : "neutral";
+			if (murderer)
+			{
+				ev["murderer"] = murderer->getId();
+				ev["murderer_faction"] = murderer->getFaction() == FACTION_PLAYER ? "player" : murderer->getFaction() == FACTION_HOSTILE ? "hostile" : "neutral";
+			}
+			ev["weapon"] = killStat.weapon;
+			_aiBridge->pushEvent(ev);
+		}
+		else if (_aiBridge && killStat.status == STATUS_UNCONSCIOUS)
+		{
+			nlohmann::json ev;
+			ev["type"] = "unit_stunned";
+			ev["unit_id"] = victim->getId();
+			ev["faction"] = victim->getFaction() == FACTION_PLAYER ? "player" : victim->getFaction() == FACTION_HOSTILE ? "hostile" : "neutral";
+			if (murderer)
+			{
+				ev["murderer"] = murderer->getId();
+			}
+			_aiBridge->pushEvent(ev);
+		}
+
 		bool noSound = false;
 		bool noCorpse = false;
 		if ((*j)->getStatus() != STATUS_DEAD)

@@ -199,6 +199,8 @@ public:
 	std::list<BattleState*> getStates();
 	/// Auto end the battle if conditions are met.
 	void autoEndBattle();
+	/// Gets the AI bridge (may be null).
+	AIBridge *getAIBridge() { return _aiBridge; }
 };
 
 }

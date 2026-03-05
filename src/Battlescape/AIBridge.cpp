@@ -330,6 +330,7 @@ void AIBridge::processMessage(const std::string &line)
 			state.erase("ascii_map");
 			state.erase("map_legend");
 		}
+		state["events"] = flushEvents();
 		sendMessage(state);
 		return;
 	}
@@ -438,6 +439,9 @@ void AIBridge::notifyTurnStart(int turn, Language *lang)
 	_lang = lang;
 
 	nlohmann::json msg = serializeGameState(turn, lang);
+	// Don't flush events here — turn_start is a push notification
+	// that may not reach anyone. Events stay in queue until an
+	// explicit client command (get_state, walk, etc.) flushes them.
 	sendMessage(msg);
 
 	Log(LOG_INFO) << "AIBridge: sent turn_start with game state (turn " << turn << ")";
@@ -1024,6 +1028,33 @@ std::string AIBridge::serializeAsciiMap(int z, const std::map<int, char> &dataSe
 	return result;
 }
 
+// --- Event Queue (Phase 4) ---
+
+/**
+ * Pushes an event to the queue. Events accumulate and are sent with the next response.
+ * @param event JSON object describing the event.
+ */
+void AIBridge::pushEvent(const nlohmann::json &event)
+{
+	_eventQueue.push_back(event);
+	Log(LOG_DEBUG) << "AIBridge: event queued: " << event.value("type", "unknown");
+}
+
+/**
+ * Returns all pending events as a JSON array and clears the queue.
+ * @return JSON array of events.
+ */
+nlohmann::json AIBridge::flushEvents()
+{
+	nlohmann::json events = nlohmann::json::array();
+	for (std::vector<nlohmann::json>::iterator it = _eventQueue.begin(); it != _eventQueue.end(); ++it)
+	{
+		events.push_back(*it);
+	}
+	_eventQueue.clear();
+	return events;
+}
+
 // --- Command Handling (Phase 3) ---
 
 /**
@@ -1081,6 +1112,9 @@ void AIBridge::notifyActionComplete(int unitId, const std::string &action, bool 
 	msg["success"] = success;
 	if (!error.empty())
 		msg["error"] = error;
+
+	// Attach accumulated events
+	msg["events"] = flushEvents();
 
 	// Enrich with unit state after action
 	if (success && unitId >= 0)
@@ -1143,6 +1177,7 @@ void AIBridge::sendError(const std::string &action, int unitId, const std::strin
 	msg["action"] = action;
 	msg["unit_id"] = unitId;
 	msg["error"] = error;
+	msg["events"] = flushEvents();
 	sendMessage(msg);
 	Log(LOG_DEBUG) << "AIBridge: error " << error << " for action " << action;
 }

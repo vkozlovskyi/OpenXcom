@@ -41,6 +41,7 @@
 #include "../Engine/Options.h"
 #include "ProjectileFlyBState.h"
 #include "MeleeAttackBState.h"
+#include "AIBridge.h"
 #include "../fmath.h"
 
 namespace OpenXcom
@@ -347,6 +348,27 @@ bool TileEngine::calculateFOV(BattleUnit *unit)
 	// or we stop if there are more visible units seen
 	if (unit->getUnitsSpottedThisTurn().size() > oldNumVisibleUnits && !unit->getVisibleUnits()->empty())
 	{
+		// AI Bridge event: new enemies spotted
+		if (unit->getFaction() == FACTION_PLAYER)
+		{
+			AIBridge *bridge = _save->getBattleGame() ? _save->getBattleGame()->getAIBridge() : 0;
+			if (bridge)
+			{
+				const std::vector<BattleUnit*> &spotted = unit->getUnitsSpottedThisTurn();
+				for (size_t i = oldNumVisibleUnits; i < spotted.size(); ++i)
+				{
+					BattleUnit *seen = spotted[i];
+					nlohmann::json ev;
+					ev["type"] = "unit_spotted";
+					ev["spotter"] = unit->getId();
+					ev["spotted_unit"] = seen->getId();
+					Position sp = seen->getPosition();
+					ev["position"] = {sp.x, sp.y, sp.z};
+					ev["spotted_faction"] = seen->getFaction() == FACTION_HOSTILE ? "hostile" : "neutral";
+					bridge->pushEvent(ev);
+				}
+			}
+		}
 		return true;
 	}
 
@@ -861,6 +883,20 @@ bool TileEngine::checkReactionFire(BattleUnit *unit)
 				reactor = getReactor(spotters, attackType, unit);
 				continue;
 			}
+			// AI Bridge event: reaction fire
+			AIBridge *bridge = _save->getBattleGame() ? _save->getBattleGame()->getAIBridge() : 0;
+			if (bridge)
+			{
+				nlohmann::json ev;
+				ev["type"] = "reaction_fire";
+				ev["shooter"] = reactor->getId();
+				ev["shooter_faction"] = reactor->getFaction() == FACTION_PLAYER ? "player" : reactor->getFaction() == FACTION_HOSTILE ? "hostile" : "neutral";
+				ev["target"] = unit->getId();
+				BattleItem *w = reactor->getMainHandWeapon(reactor->getFaction() != FACTION_PLAYER);
+				if (w)
+					ev["weapon"] = w->getRules()->getName();
+				bridge->pushEvent(ev);
+			}
 			// nice shot, kid. don't get cocky.
 			reactor = getReactor(spotters, attackType, unit);
 			result = true;
@@ -1158,6 +1194,32 @@ BattleUnit *TileEngine::hit(Position center, int power, ItemDamageType type, Bat
 			const int wounds = bu->getFatalWounds();
 
 			adjustedDamage = bu->damage(relative, rndPower, type);
+
+			// AI Bridge event: unit took damage
+			AIBridge *bridge = _save->getBattleGame() ? _save->getBattleGame()->getAIBridge() : 0;
+			if (bridge && adjustedDamage > 0)
+			{
+				nlohmann::json ev;
+				ev["type"] = "unit_wounded";
+				ev["unit_id"] = bu->getId();
+				ev["faction"] = bu->getFaction() == FACTION_PLAYER ? "player" : bu->getFaction() == FACTION_HOSTILE ? "hostile" : "neutral";
+				ev["damage"] = adjustedDamage;
+				ev["hp"] = bu->getHealth();
+				if (unit)
+					ev["shooter"] = unit->getId();
+				if (wounds < bu->getFatalWounds())
+				{
+					nlohmann::json fw;
+					fw["head"] = bu->getFatalWound(BODYPART_HEAD);
+					fw["torso"] = bu->getFatalWound(BODYPART_TORSO);
+					fw["right_arm"] = bu->getFatalWound(BODYPART_RIGHTARM);
+					fw["left_arm"] = bu->getFatalWound(BODYPART_LEFTARM);
+					fw["right_leg"] = bu->getFatalWound(BODYPART_RIGHTLEG);
+					fw["left_leg"] = bu->getFatalWound(BODYPART_LEFTLEG);
+					ev["fatal_wounds"] = fw;
+				}
+				bridge->pushEvent(ev);
+			}
 
 			// if it's going to bleed to death and it's not a player, give credit for the kill.
 			if (unit && bu->getFaction() != FACTION_PLAYER && wounds < bu->getFatalWounds())

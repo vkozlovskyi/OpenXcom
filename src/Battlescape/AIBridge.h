@@ -18,6 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include <string>
+#include <vector>
 #include <map>
 #include "Position.h"
 #include "../lib/nlohmann/json.hpp"
@@ -70,6 +71,8 @@ private:
 	bool _actionExecuting;        /// true while a dispatched action is animating
 	int _executingUnitId;         /// unit ID of the executing action
 	std::string _executingAction; /// action type of the executing action
+
+	std::vector<nlohmann::json> _eventQueue; /// accumulated events for next response
 
 	/// Sets a file descriptor to non-blocking mode.
 	bool setNonBlocking(int fd);
@@ -136,6 +139,11 @@ public:
 	void notifyActionComplete(int unitId, const std::string &action, bool success, const std::string &error = "");
 	/// Sends action_complete for the currently executing action.
 	void notifyCurrentActionComplete(bool success, const std::string &error = "");
+
+	/// Pushes an event to the queue (will be sent with the next response).
+	void pushEvent(const nlohmann::json &event);
+	/// Returns pending events as JSON array and clears the queue.
+	nlohmann::json flushEvents();
 };
 
 }

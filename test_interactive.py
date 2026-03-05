@@ -79,12 +79,16 @@ msgs, buf = recv_messages(sock, timeout=30.0)
 for m in msgs:
     t = m.get('type', '?')
     if t == 'action_complete':
-        print(f"OK pos={m.get('pos')} tu={m.get('tu')} energy={m.get('energy')} hp={m.get('hp')}")
+        ok = m.get('success', '?')
+        err = m.get('error', '')
+        print(f"{'OK' if ok else 'FAIL'} pos={m.get('pos')} tu={m.get('tu')} energy={m.get('energy')} hp={m.get('hp')}{' err='+err if err else ''}")
         enemies = m.get('visible_enemies', [])
         if enemies:
             print(f"ENEMIES SPOTTED: {len(enemies)}")
             for e in enemies:
                 print(f"  id={e['id']} pos={e['pos']}")
+        for ev in m.get('events', []):
+            print(f"  EVENT: {json.dumps(ev)}")
     elif t == 'action_error':
         print(f"ERROR: {m.get('error')} (action={m.get('action')})")
     elif t == 'game_state':
@@ -95,8 +99,12 @@ for m in msgs:
             print(f"ENEMIES: {len(enemies)}")
             for e in enemies:
                 print(f"  {e['id']} {e.get('name','?')} at {e['pos']}")
+        for ev in m.get('events', []):
+            print(f"  EVENT: {json.dumps(ev)}")
     elif t == 'turn_start':
         print(f"[turn {m['turn']} started]")
+        for ev in m.get('events', []):
+            print(f"  EVENT: {json.dumps(ev)}")
         enemies = m.get('visible_enemies', [])
         if enemies:
             print(f"ENEMIES: {len(enemies)}")
