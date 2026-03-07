@@ -73,6 +73,7 @@ private:
 	std::string _executingAction; /// action type of the executing action
 
 	std::vector<nlohmann::json> _eventQueue; /// accumulated events for next response
+	int _discoveredCountBefore;              /// discovered tile count before walk (for map delta detection)
 
 	/// Sets a file descriptor to non-blocking mode.
 	bool setNonBlocking(int fd);
@@ -99,6 +100,10 @@ private:
 	nlohmann::json serializeVisibleEnemy(BattleUnit *unit, Language *lang) const;
 	/// Serializes a z-level as a 2x2-per-tile ASCII map string.
 	std::string serializeAsciiMap(int z, const std::map<int, char> &dataSetChars) const;
+	/// Counts total discovered tiles on the map.
+	int countDiscoveredTiles() const;
+	/// Attaches ascii_map + map_legend to a JSON message.
+	void attachMap(nlohmann::json &msg) const;
 
 public:
 	/// Sends a JSON message to the connected client.

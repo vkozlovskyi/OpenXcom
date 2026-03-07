@@ -48,7 +48,7 @@ namespace OpenXcom
  * Creates the AIBridge with a reference to the battle state.
  * @param save Pointer to the saved battle game.
  */
-AIBridge::AIBridge(SavedBattleGame *save) : _listenFd(-1), _clientFd(-1), _port(0), _enabled(false), _lastTurnSent(-1), _currentTurn(0), _lang(0), _save(save), _hasPendingCommand(false), _actionExecuting(false), _executingUnitId(-1)
+AIBridge::AIBridge(SavedBattleGame *save) : _listenFd(-1), _clientFd(-1), _port(0), _enabled(false), _lastTurnSent(-1), _currentTurn(0), _lang(0), _save(save), _hasPendingCommand(false), _actionExecuting(false), _executingUnitId(-1), _discoveredCountBefore(0)
 {
 }
 
@@ -1028,6 +1028,84 @@ std::string AIBridge::serializeAsciiMap(int z, const std::map<int, char> &dataSe
 	return result;
 }
 
+/**
+ * Counts total discovered tiles on the map (for detecting new discoveries after walk).
+ */
+int AIBridge::countDiscoveredTiles() const
+{
+	int count = 0;
+	int sizeX = _save->getMapSizeX();
+	int sizeY = _save->getMapSizeY();
+	int sizeZ = _save->getMapSizeZ();
+	for (int z = 0; z < sizeZ; z++)
+		for (int y = 0; y < sizeY; y++)
+			for (int x = 0; x < sizeX; x++)
+			{
+				Tile *tile = _save->getTile(Position(x, y, z));
+				if (tile && tile->isDiscovered(2))
+					count++;
+			}
+	return count;
+}
+
+/**
+ * Attaches ascii_map and map_legend to a JSON message (reuses serializeGameState map logic).
+ */
+void AIBridge::attachMap(nlohmann::json &msg) const
+{
+	// Build MapDataSet-to-character mapping (same logic as serializeGameState)
+	std::vector<MapDataSet*> *dataSets = _save->getMapDataSets();
+	std::map<int, char> dataSetChars;
+	nlohmann::json mapLegend;
+	char nextChar = 'a';
+	for (size_t i = 0; i < dataSets->size(); i++)
+	{
+		std::string name = dataSets->at(i)->getName();
+		if (name.compare(0, 3, "UFO") == 0 || name.compare(0, 2, "U_") == 0
+			|| name.compare(0, 4, "UEXT") == 0 || name.compare(0, 4, "UINT") == 0)
+		{
+			dataSetChars[i] = 'u';
+		}
+		else if (name == "PLANE" || name == "LIGHTNIN" || name == "AVENGER"
+			|| name == "TRITON" || name == "HAMMER" || name == "LEVIATH")
+		{
+			dataSetChars[i] = 's';
+		}
+		else if (name != "BLANKS" && nextChar <= 'z')
+		{
+			dataSetChars[i] = nextChar;
+			mapLegend[std::string(1, nextChar)] = name;
+			nextChar++;
+			if (nextChar == 's' || nextChar == 'u') nextChar++;
+			if (nextChar == 's' || nextChar == 'u') nextChar++;
+		}
+	}
+	mapLegend["u"] = "UFO";
+	mapLegend["s"] = "craft";
+	mapLegend["/"] = "stairs";
+	mapLegend["^"] = "gravlift";
+
+	nlohmann::json asciiMap;
+	int sizeZ = _save->getMapSizeZ();
+	int sizeX = _save->getMapSizeX();
+	int sizeY = _save->getMapSizeY();
+	for (int z = 0; z < sizeZ; z++)
+	{
+		bool hasDiscovered = false;
+		for (int y = 0; y < sizeY && !hasDiscovered; y++)
+			for (int x = 0; x < sizeX && !hasDiscovered; x++)
+			{
+				Tile *tile = _save->getTile(Position(x, y, z));
+				if (tile && tile->isDiscovered(2) && !tile->isVoid())
+					hasDiscovered = true;
+			}
+		if (hasDiscovered)
+			asciiMap[std::to_string(z)] = serializeAsciiMap(z, dataSetChars);
+	}
+	msg["ascii_map"] = asciiMap;
+	msg["map_legend"] = mapLegend;
+}
+
 // --- Event Queue (Phase 4) ---
 
 /**
@@ -1092,6 +1170,10 @@ void AIBridge::setActionExecuting(int unitId, const std::string &action)
 	_actionExecuting = true;
 	_executingUnitId = unitId;
 	_executingAction = action;
+
+	// Snapshot discovered tile count before walk so we can detect new discoveries
+	if (action == "walk")
+		_discoveredCountBefore = countDiscoveredTiles();
 }
 
 /**
@@ -1148,6 +1230,16 @@ void AIBridge::notifyActionComplete(int unitId, const std::string &action, bool 
 				}
 			}
 			msg["visible_enemies"] = enemies;
+		}
+	}
+
+	// Attach full map if walk discovered new tiles
+	if (action == "walk" && success)
+	{
+		int discoveredNow = countDiscoveredTiles();
+		if (discoveredNow > _discoveredCountBefore)
+		{
+			attachMap(msg);
 		}
 	}
 
