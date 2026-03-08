@@ -74,6 +74,7 @@ private:
 
 	std::vector<nlohmann::json> _eventQueue; /// accumulated events for next response
 	int _discoveredCountBefore;              /// discovered tile count before walk (for map delta detection)
+	bool _mapDirty;                          /// true when map changed (explosion, fire, door, etc.)
 
 	/// Sets a file descriptor to non-blocking mode.
 	bool setNonBlocking(int fd);
@@ -145,6 +146,8 @@ public:
 	/// Sends action_complete for the currently executing action.
 	void notifyCurrentActionComplete(bool success, const std::string &error = "");
 
+	/// Marks the map as changed — action_complete will attach updated map.
+	void setMapDirty();
 	/// Pushes an event to the queue (will be sent with the next response).
 	void pushEvent(const nlohmann::json &event);
 	/// Returns pending events as JSON array and clears the queue.

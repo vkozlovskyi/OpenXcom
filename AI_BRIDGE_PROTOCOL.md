@@ -138,10 +138,19 @@ Returned after walk, shoot, kneel, throw, prime complete.
   "tu": 38,
   "energy": 72,
   "hp": 30,
+  "direction": 4,
+  "morale": 95,
   "visible_enemies": [{"id": 20, "pos": [12, 10, 0]}],
   "events": [...]
 }
 ```
+
+After `shoot` action, also includes ammo status:
+```json
+"ammo_right": 17,
+"ammo_left": 0
+```
+`ammo_right`/`ammo_left` only present when that hand holds a firearm. Value 0 means empty magazine.
 
 ### action_error
 Returned when a command fails validation.
@@ -234,6 +243,18 @@ Unit is falling through a destroyed floor to a lower z-level.
 A killed unit converted into a new unit (zombie from Chryssalid kill, Celatid spawn, etc.).
 ```json
 {"type": "unit_spawned", "original_unit_id": 3, "original_faction": "player", "new_unit_id": 42, "new_type": "STR_ZOMBIE", "new_faction": "hostile", "pos": [14, 30, 1]}
+```
+
+### bleeding
+Between-turn HP loss from fatal wounds. Sent at start of each turn for wounded units.
+```json
+{"type": "bleeding", "unit_id": 3, "faction": "player", "damage": 2, "hp": 18, "fatal_wounds": 2}
+```
+
+### door_opened
+A door was opened (by walking through or manual click).
+```json
+{"type": "door_opened", "pos": [14, 30, 1], "unit_id": 3, "ufo_door": false}
 ```
 
 ---

@@ -48,7 +48,7 @@ namespace OpenXcom
  * Creates the AIBridge with a reference to the battle state.
  * @param save Pointer to the saved battle game.
  */
-AIBridge::AIBridge(SavedBattleGame *save) : _listenFd(-1), _clientFd(-1), _port(0), _enabled(false), _lastTurnSent(-1), _currentTurn(0), _lang(0), _save(save), _hasPendingCommand(false), _actionExecuting(false), _executingUnitId(-1), _discoveredCountBefore(0)
+AIBridge::AIBridge(SavedBattleGame *save) : _listenFd(-1), _clientFd(-1), _port(0), _enabled(false), _lastTurnSent(-1), _currentTurn(0), _lang(0), _save(save), _hasPendingCommand(false), _actionExecuting(false), _executingUnitId(-1), _discoveredCountBefore(0), _mapDirty(false)
 {
 }
 
@@ -1119,6 +1119,14 @@ void AIBridge::pushEvent(const nlohmann::json &event)
 }
 
 /**
+ * Marks the ASCII map as dirty — next action_complete will attach updated map.
+ */
+void AIBridge::setMapDirty()
+{
+	_mapDirty = true;
+}
+
+/**
  * Returns all pending events as a JSON array and clears the queue.
  * @return JSON array of events.
  */
@@ -1213,6 +1221,23 @@ void AIBridge::notifyActionComplete(int unitId, const std::string &action, bool 
 			msg["tu"] = unit->getTimeUnits();
 			msg["energy"] = unit->getEnergy();
 			msg["hp"] = unit->getHealth();
+			msg["direction"] = unit->getDirection();
+			msg["morale"] = unit->getMorale();
+
+			// Ammo status for hands (useful after shooting)
+			if (action == "shoot")
+			{
+				BattleItem *rh = unit->getItem("STR_RIGHT_HAND");
+				BattleItem *lh = unit->getItem("STR_LEFT_HAND");
+				if (rh && rh->getAmmoItem())
+					msg["ammo_right"] = rh->getAmmoItem()->getAmmoQuantity();
+				else if (rh && rh->getRules()->getBattleType() == BT_FIREARM)
+					msg["ammo_right"] = 0;
+				if (lh && lh->getAmmoItem())
+					msg["ammo_left"] = lh->getAmmoItem()->getAmmoQuantity();
+				else if (lh && lh->getRules()->getBattleType() == BT_FIREARM)
+					msg["ammo_left"] = 0;
+			}
 
 			// Visible enemies after this action
 			nlohmann::json enemies = nlohmann::json::array();
@@ -1233,8 +1258,13 @@ void AIBridge::notifyActionComplete(int unitId, const std::string &action, bool 
 		}
 	}
 
-	// Attach full map if walk discovered new tiles
-	if (action == "walk" && success)
+	// Attach full map if it changed (walk discovered new tiles, explosion, fire, door, etc.)
+	if (_mapDirty)
+	{
+		attachMap(msg);
+		_mapDirty = false;
+	}
+	else if (action == "walk" && success)
 	{
 		int discoveredNow = countDiscoveredTiles();
 		if (discoveredNow > _discoveredCountBefore)

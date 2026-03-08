@@ -1542,19 +1542,25 @@ void TileEngine::explode(Position center, int power, ItemDamageType type, int ma
 		}
 	}
 
-	// AI Bridge event: terrain destroyed by explosion
-	if (terrainChanged)
+	// AI Bridge: notify map changed (terrain destruction, fire, smoke)
 	{
 		AIBridge *bridge = _save->getBattleGame() ? _save->getBattleGame()->getAIBridge() : 0;
 		if (bridge)
 		{
-			nlohmann::json ev;
-			ev["type"] = "terrain_destroyed";
-			Position ctr = center / Position(16, 16, 24);
-			ev["center"] = {ctr.x, ctr.y, ctr.z};
-			ev["radius"] = maxRadius;
-			ev["power"] = power;
-			bridge->pushEvent(ev);
+			if (terrainChanged)
+			{
+				nlohmann::json ev;
+				ev["type"] = "terrain_destroyed";
+				Position ctr = center / Position(16, 16, 24);
+				ev["center"] = {ctr.x, ctr.y, ctr.z};
+				ev["radius"] = maxRadius;
+				ev["power"] = power;
+				bridge->pushEvent(ev);
+			}
+			if (!tilesAffected.empty())
+			{
+				bridge->setMapDirty();
+			}
 		}
 	}
 
@@ -2225,6 +2231,23 @@ int TileEngine::unitOpensDoor(BattleUnit *unit, bool rClick, int dir)
 			else return 4;
 		}
 		else return 5;
+	}
+
+	// AI Bridge event: door opened + mark map dirty
+	if (door >= 0 && tile)
+	{
+		AIBridge *bridge = _save->getBattleGame() ? _save->getBattleGame()->getAIBridge() : 0;
+		if (bridge)
+		{
+			nlohmann::json ev;
+			ev["type"] = "door_opened";
+			Position dp = tile->getPosition();
+			ev["pos"] = {dp.x, dp.y, dp.z};
+			ev["unit_id"] = unit->getId();
+			ev["ufo_door"] = (door == 1);
+			bridge->pushEvent(ev);
+			bridge->setMapDirty();
+		}
 	}
 
 	return door;

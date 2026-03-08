@@ -29,6 +29,7 @@
 #include "../Battlescape/TileEngine.h"
 #include "../Battlescape/BattlescapeState.h"
 #include "../Battlescape/BattlescapeGame.h"
+#include "../Battlescape/AIBridge.h"
 #include "../Battlescape/Position.h"
 #include "../Mod/Mod.h"
 #include "../Mod/Armor.h"
@@ -901,11 +902,27 @@ void SavedBattleGame::endTurn()
 		}
 	}
 	// hide all aliens (VOF calculations below will turn them visible again)
+	BattlescapeGame *bg = _battleState ? _battleState->getBattleGame() : 0;
+	AIBridge *bridge = bg ? bg->getAIBridge() : 0;
 	for (std::vector<BattleUnit*>::iterator i = _units.begin(); i != _units.end(); ++i)
 	{
 		if ((*i)->getFaction() == _side)
 		{
+			int hpBefore = (*i)->getHealth();
+			int woundsBefore = (*i)->getFatalWounds();
 			(*i)->prepareNewTurn();
+			// AI Bridge event: bleeding damage between turns
+			if (bridge && woundsBefore > 0 && (*i)->getHealth() < hpBefore)
+			{
+				nlohmann::json ev;
+				ev["type"] = "bleeding";
+				ev["unit_id"] = (*i)->getId();
+				ev["faction"] = (*i)->getFaction() == FACTION_PLAYER ? "player" : (*i)->getFaction() == FACTION_HOSTILE ? "hostile" : "neutral";
+				ev["damage"] = hpBefore - (*i)->getHealth();
+				ev["hp"] = (*i)->getHealth();
+				ev["fatal_wounds"] = woundsBefore;
+				bridge->pushEvent(ev);
+			}
 		}
 		if ((*i)->getFaction() != FACTION_PLAYER)
 		{
