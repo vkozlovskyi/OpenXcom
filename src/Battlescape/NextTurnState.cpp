@@ -30,6 +30,8 @@
 #include "../Engine/Action.h"
 #include "../Savegame/SavedBattleGame.h"
 #include "BattlescapeState.h"
+#include "BattlescapeGame.h"
+#include "AIBridge.h"
 #include "Map.h"
 
 namespace OpenXcom
@@ -122,9 +124,11 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 
 	_state->clearMouseScrollingState();
 
-	if (Options::skipNextTurnScreen)
+	// Auto-skip when AI client is connected or option is set
+	AIBridge *bridge = _battleGame->getBattleGame() ? _battleGame->getBattleGame()->getAIBridge() : 0;
+	if (Options::skipNextTurnScreen || (bridge && bridge->isConnected()))
 	{
-		_timer = new Timer(NEXT_TURN_DELAY);
+		_timer = new Timer(bridge && bridge->isConnected() ? 1 : NEXT_TURN_DELAY);
 		_timer->onTimer((StateHandler)&NextTurnState::close);
 		_timer->start();
 	}
