@@ -48,7 +48,7 @@ namespace OpenXcom
  * Creates the AIBridge with a reference to the battle state.
  * @param save Pointer to the saved battle game.
  */
-AIBridge::AIBridge(SavedBattleGame *save) : _listenFd(-1), _clientFd(-1), _port(0), _enabled(false), _lastTurnSent(-1), _currentTurn(0), _lang(0), _save(save), _hasPendingCommand(false), _actionExecuting(false), _executingUnitId(-1), _discoveredCountBefore(0), _mapDirty(false)
+AIBridge::AIBridge(SavedBattleGame *save) : _listenFd(-1), _clientFd(-1), _port(0), _enabled(false), _lastTurnSent(-1), _currentTurn(0), _lang(0), _save(save), _hasPendingCommand(false), _actionExecuting(false), _executingUnitId(-1), _discoveredCountBefore(0), _mapDirty(false), _wasUsed(false)
 {
 }
 
@@ -387,6 +387,7 @@ void AIBridge::processMessage(const std::string &line)
 
 	_pendingCommand = cmd;
 	_hasPendingCommand = true;
+	_wasUsed = true;
 	Log(LOG_DEBUG) << "AIBridge: queued command: " << cmd.action << " unit=" << cmd.unitId;
 }
 
@@ -463,6 +464,14 @@ void AIBridge::notifyBattleEnd()
 bool AIBridge::isConnected() const
 {
 	return _clientFd >= 0;
+}
+
+/**
+ * Returns true if any client command was ever received this battle.
+ */
+bool AIBridge::wasUsed() const
+{
+	return _wasUsed;
 }
 
 // --- Game State Serialization (Phase 2) ---

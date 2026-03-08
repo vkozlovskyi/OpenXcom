@@ -124,11 +124,11 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 
 	_state->clearMouseScrollingState();
 
-	// Auto-skip when AI client is connected or option is set
+	// Auto-skip when AI bridge was used or option is set
 	AIBridge *bridge = _battleGame->getBattleGame() ? _battleGame->getBattleGame()->getAIBridge() : 0;
-	if (Options::skipNextTurnScreen || (bridge && bridge->isConnected()))
+	if (Options::skipNextTurnScreen || (bridge && bridge->wasUsed()))
 	{
-		_timer = new Timer(bridge && bridge->isConnected() ? 1 : NEXT_TURN_DELAY);
+		_timer = new Timer(bridge && bridge->wasUsed() ? 1 : NEXT_TURN_DELAY);
 		_timer->onTimer((StateHandler)&NextTurnState::close);
 		_timer->start();
 	}

@@ -75,6 +75,7 @@ private:
 	std::vector<nlohmann::json> _eventQueue; /// accumulated events for next response
 	int _discoveredCountBefore;              /// discovered tile count before walk (for map delta detection)
 	bool _mapDirty;                          /// true when map changed (explosion, fire, door, etc.)
+	bool _wasUsed;                           /// true after first client command (persists across reconnects)
 
 	/// Sets a file descriptor to non-blocking mode.
 	bool setNonBlocking(int fd);
@@ -132,6 +133,8 @@ public:
 
 	/// Returns true if a client is connected.
 	bool isConnected() const;
+	/// Returns true if AI bridge was used (any command received).
+	bool wasUsed() const;
 
 	/// Returns true if there is a parsed command waiting to be dispatched.
 	bool hasPendingCommand() const;
