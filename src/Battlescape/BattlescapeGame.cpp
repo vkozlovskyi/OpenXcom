@@ -174,7 +174,10 @@ void BattlescapeGame::think()
 
 				if (_aiBridge->isActionExecuting())
 				{
-					// Async action finished (states drained) — notify client
+					// Async action finished (states drained) — center camera on unit and notify client
+					BattleUnit *activeUnit = _save->getSelectedUnit();
+					if (activeUnit)
+						getMap()->getCamera()->centerOnPosition(activeUnit->getPosition());
 					_aiBridge->notifyCurrentActionComplete(true);
 				}
 				else if (_aiBridge->hasPendingCommand())
@@ -228,12 +231,14 @@ void BattlescapeGame::executeAICommand(const AICommand &cmd)
 		cancelCurrentAction();
 		setupCursor();
 		_parentState->updateSoldierInfo();
+		getMap()->getCamera()->centerOnPosition(unit->getPosition());
 		_aiBridge->notifyActionComplete(cmd.unitId, "select", true);
 	}
 	// --- WALK ---
 	else if (cmd.action == "walk")
 	{
 		_save->setSelectedUnit(unit);
+		getMap()->getCamera()->centerOnPosition(unit->getPosition());
 
 		BattleAction action;
 		action.actor = unit;
@@ -288,6 +293,7 @@ void BattlescapeGame::executeAICommand(const AICommand &cmd)
 		}
 
 		_save->setSelectedUnit(unit);
+		getMap()->getCamera()->centerOnPosition(unit->getPosition());
 		_aiBridge->setActionExecuting(cmd.unitId, "shoot");
 		statePushBack(new UnitTurnBState(this, action));
 		statePushBack(new ProjectileFlyBState(this, action));
@@ -318,6 +324,7 @@ void BattlescapeGame::executeAICommand(const AICommand &cmd)
 		}
 
 		_save->setSelectedUnit(unit);
+		getMap()->getCamera()->centerOnPosition(unit->getPosition());
 		_aiBridge->setActionExecuting(cmd.unitId, "throw");
 		statePushBack(new UnitTurnBState(this, action));
 		statePushBack(new ProjectileFlyBState(this, action));
