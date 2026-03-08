@@ -28,6 +28,8 @@
 #include "../Savegame/Tile.h"
 #include "../Engine/Options.h"
 #include "../Mod/Armor.h"
+#include "AIBridge.h"
+#include "BattlescapeGame.h"
 
 namespace OpenXcom
 {
@@ -171,6 +173,19 @@ void UnitFallBState::think()
 		{
 			if (falling)
 			{
+				// AI Bridge event: unit falling
+				AIBridge *bridge = _parent->getAIBridge();
+				if (bridge)
+				{
+					nlohmann::json ev;
+					ev["type"] = "unit_falling";
+					ev["unit_id"] = (*unit)->getId();
+					ev["faction"] = (*unit)->getFaction() == FACTION_PLAYER ? "player" : (*unit)->getFaction() == FACTION_HOSTILE ? "hostile" : "neutral";
+					Position p = (*unit)->getPosition();
+					ev["from"] = {p.x, p.y, p.z};
+					bridge->pushEvent(ev);
+				}
+
 				Position destination = (*unit)->getPosition() + Position(0,0,-1);
 				Tile *tileDest = _parent->getSave()->getTile(destination);
 				(*unit)->startWalking(Pathfinding::DIR_DOWN, destination, tileDest, onScreen);

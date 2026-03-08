@@ -33,6 +33,7 @@
 #include "../Engine/Sound.h"
 #include "../Mod/Mod.h"
 #include "../Savegame/BattleUnitStatistics.h"
+#include "AIBridge.h"
 
 namespace OpenXcom
 {
@@ -186,6 +187,22 @@ void PsiAttackBState::psiAttack()
 			}
 			_target->setMindControllerId(_unit->getId());
 			_target->convertToFaction(_unit->getFaction());
+
+			// AI Bridge event: mind control
+			AIBridge *bridge = _parent->getAIBridge();
+			if (bridge)
+			{
+				nlohmann::json ev;
+				ev["type"] = "mind_control";
+				ev["controller_id"] = _unit->getId();
+				ev["controller_faction"] = _unit->getFaction() == FACTION_PLAYER ? "player" : _unit->getFaction() == FACTION_HOSTILE ? "hostile" : "neutral";
+				ev["target_id"] = _target->getId();
+				ev["new_faction"] = _target->getFaction() == FACTION_PLAYER ? "player" : _target->getFaction() == FACTION_HOSTILE ? "hostile" : "neutral";
+				Position p = _target->getPosition();
+				ev["pos"] = {p.x, p.y, p.z};
+				bridge->pushEvent(ev);
+			}
+
 			_parent->getTileEngine()->calculateFOV(_target->getPosition());
 			_parent->getTileEngine()->calculateUnitLighting();
 			_target->recoverTimeUnits();

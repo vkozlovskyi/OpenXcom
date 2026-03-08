@@ -1549,6 +1549,18 @@ bool BattlescapeGame::handlePanickingUnit(BattleUnit *unit)
 	_save->setSelectedUnit(unit);
 	_parentState->getMap()->setCursorType(CT_NONE);
 
+	// AI Bridge event: unit panicking or berserk
+	if (_aiBridge)
+	{
+		nlohmann::json ev;
+		ev["type"] = status == STATUS_PANICKING ? "unit_panicking" : "unit_berserk";
+		ev["unit_id"] = unit->getId();
+		ev["faction"] = unit->getFaction() == FACTION_PLAYER ? "player" : unit->getFaction() == FACTION_HOSTILE ? "hostile" : "neutral";
+		Position p = unit->getPosition();
+		ev["pos"] = {p.x, p.y, p.z};
+		_aiBridge->pushEvent(ev);
+	}
+
 	// show a little infobox with the name of the unit and "... is panicking"
 	Game *game = _parentState->getGame();
 	if (unit->getVisible() || !Options::noAlienPanicMessages)
@@ -1961,10 +1973,28 @@ void BattlescapeGame::dropItem(Position position, BattleItem *item, bool newItem
 BattleUnit *BattlescapeGame::convertUnit(BattleUnit *unit)
 {
 	getSave()->getBattleState()->showPsiButton(false);
+	int originalId = unit->getId();
+	std::string originalFaction = unit->getFaction() == FACTION_PLAYER ? "player" : unit->getFaction() == FACTION_HOSTILE ? "hostile" : "neutral";
+	std::string spawnType = unit->getSpawnUnit();
 	BattleUnit* newUnit = getSave()->convertUnit(unit, _parentState->getGame()->getSavedGame(), getMod());
 	getMap()->cacheUnit(newUnit);
-	return newUnit;
 
+	// AI Bridge event: zombie/chryssalid spawned from killed unit
+	if (_aiBridge && newUnit)
+	{
+		nlohmann::json ev;
+		ev["type"] = "unit_spawned";
+		ev["original_unit_id"] = originalId;
+		ev["original_faction"] = originalFaction;
+		ev["new_unit_id"] = newUnit->getId();
+		ev["new_type"] = spawnType;
+		ev["new_faction"] = newUnit->getFaction() == FACTION_PLAYER ? "player" : newUnit->getFaction() == FACTION_HOSTILE ? "hostile" : "neutral";
+		Position p = newUnit->getPosition();
+		ev["pos"] = {p.x, p.y, p.z};
+		_aiBridge->pushEvent(ev);
+	}
+
+	return newUnit;
 }
 
 /**

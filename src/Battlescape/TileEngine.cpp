@@ -1524,10 +1524,13 @@ void TileEngine::explode(Position center, int power, ItemDamageType type, int ma
 	}
 	// now detonate the tiles affected with HE
 
+	bool terrainChanged = false;
 	if (type == DT_HE)
 	{
 		for (std::set<Tile*>::iterator i = tilesAffected.begin(); i != tilesAffected.end(); ++i)
 		{
+			if ((*i)->getExplosive())
+				terrainChanged = true;
 			if (detonate(*i))
 			{
 				_save->addDestroyedObjective();
@@ -1536,6 +1539,22 @@ void TileEngine::explode(Position center, int power, ItemDamageType type, int ma
 			Tile *j = _save->getTile((*i)->getPosition() + Position(0,0,1));
 			if (j)
 				applyGravity(j);
+		}
+	}
+
+	// AI Bridge event: terrain destroyed by explosion
+	if (terrainChanged)
+	{
+		AIBridge *bridge = _save->getBattleGame() ? _save->getBattleGame()->getAIBridge() : 0;
+		if (bridge)
+		{
+			nlohmann::json ev;
+			ev["type"] = "terrain_destroyed";
+			Position ctr = center / Position(16, 16, 24);
+			ev["center"] = {ctr.x, ctr.y, ctr.z};
+			ev["radius"] = maxRadius;
+			ev["power"] = power;
+			bridge->pushEvent(ev);
 		}
 	}
 

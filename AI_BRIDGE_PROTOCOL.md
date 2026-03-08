@@ -194,6 +194,48 @@ Accumulated in a queue, flushed with every command response (in `events` array).
 {"type": "unit_spotted", "spotter": 3, "spotted_unit": 20, "position": [12, 10, 0], "spotted_faction": "hostile"}
 ```
 
+### unit_panicking
+Unit entered panic state — drops weapons, may flee randomly. Uncontrollable until panic ends.
+```json
+{"type": "unit_panicking", "unit_id": 3, "faction": "player", "pos": [14, 30, 1]}
+```
+
+### unit_berserk
+Unit went berserk — will fire wildly at random targets. Uncontrollable.
+```json
+{"type": "unit_berserk", "unit_id": 3, "faction": "player", "pos": [14, 30, 1]}
+```
+
+### mind_control
+Unit's faction changed due to psi mind control.
+```json
+{"type": "mind_control", "controller_id": 20, "controller_faction": "hostile", "target_id": 3, "new_faction": "hostile", "pos": [14, 30, 1]}
+```
+
+### melee_attack
+Melee attack hit/miss result (analogous to `shot_result` for ranged).
+```json
+{"type": "melee_attack", "attacker": 20, "attacker_faction": "hostile", "weapon": "STR_CHRYSSALID_MELEE", "hit": true, "target": 3, "target_faction": "player"}
+```
+
+### terrain_destroyed
+Explosion destroyed terrain. AI should request updated map via `get_state` with `include_map: true`.
+```json
+{"type": "terrain_destroyed", "center": [12, 10, 0], "radius": 5, "power": 60}
+```
+
+### unit_falling
+Unit is falling through a destroyed floor to a lower z-level.
+```json
+{"type": "unit_falling", "unit_id": 3, "faction": "player", "from": [14, 30, 2]}
+```
+
+### unit_spawned
+A killed unit converted into a new unit (zombie from Chryssalid kill, Celatid spawn, etc.).
+```json
+{"type": "unit_spawned", "original_unit_id": 3, "original_faction": "player", "new_unit_id": 42, "new_type": "STR_ZOMBIE", "new_faction": "hostile", "pos": [14, 30, 1]}
+```
+
 ---
 
 ## Player Unit Data (in `units` array)

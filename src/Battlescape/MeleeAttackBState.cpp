@@ -33,6 +33,7 @@
 #include "../Mod/Mod.h"
 #include "../Mod/RuleItem.h"
 #include "../fmath.h"
+#include "AIBridge.h"
 
 namespace OpenXcom
 {
@@ -223,7 +224,27 @@ void MeleeAttackBState::performMeleeAttack()
  */
 void MeleeAttackBState::resolveHit()
 {
-	if (RNG::percent(_unit->getFiringAccuracy(BA_HIT, _weapon)))
+	bool hit = RNG::percent(_unit->getFiringAccuracy(BA_HIT, _weapon));
+
+	// AI Bridge event: melee attack result
+	AIBridge *bridge = _parent->getAIBridge();
+	if (bridge)
+	{
+		nlohmann::json ev;
+		ev["type"] = "melee_attack";
+		ev["attacker"] = _unit->getId();
+		ev["attacker_faction"] = _unit->getFaction() == FACTION_PLAYER ? "player" : _unit->getFaction() == FACTION_HOSTILE ? "hostile" : "neutral";
+		ev["weapon"] = _weapon->getRules()->getName();
+		ev["hit"] = hit;
+		if (_target)
+		{
+			ev["target"] = _target->getId();
+			ev["target_faction"] = _target->getFaction() == FACTION_PLAYER ? "player" : _target->getFaction() == FACTION_HOSTILE ? "hostile" : "neutral";
+		}
+		bridge->pushEvent(ev);
+	}
+
+	if (hit)
 	{
 		// Give soldiers XP
 		if (_unit->getGeoscapeSoldier() &&
