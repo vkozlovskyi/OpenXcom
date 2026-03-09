@@ -72,6 +72,21 @@ if len(sys.argv) < 2:
     sock.close()
     sys.exit(0)
 
+def print_map(m):
+    amap = m.get('ascii_map', {})
+    if not amap:
+        return
+    legend = m.get('map_legend', {})
+    if legend:
+        print(f"  MAP LEGEND: {' '.join(k+'='+v for k,v in legend.items())}")
+    for z in sorted(amap.keys(), key=lambda x: int(x)):
+        lines = amap[z].split('\n')
+        nonblank = [l for l in lines if l.strip()]
+        if nonblank:
+            print(f"  === Z={z} ===")
+            for l in nonblank:
+                print(f"  {l}")
+
 cmd = sys.argv[1]
 sock.sendall((cmd + '\n').encode())
 msgs, buf = recv_messages(sock, timeout=30.0)
@@ -89,6 +104,7 @@ for m in msgs:
                 print(f"  id={e['id']} pos={e['pos']}")
         for ev in m.get('events', []):
             print(f"  EVENT: {json.dumps(ev)}")
+        print_map(m)
     elif t == 'action_error':
         print(f"ERROR: {m.get('error')} (action={m.get('action')})")
     elif t == 'game_state':
@@ -101,6 +117,7 @@ for m in msgs:
                 print(f"  {e['id']} {e.get('name','?')} at {e['pos']}")
         for ev in m.get('events', []):
             print(f"  EVENT: {json.dumps(ev)}")
+        print_map(m)
     elif t == 'turn_start':
         print(f"[turn {m['turn']} started]")
         for ev in m.get('events', []):
@@ -113,6 +130,7 @@ for m in msgs:
         for u in m.get('units', []):
             hp_warn = " !!WOUNDED!!" if u['hp'] < u['hp_max'] else ""
             print(f"  {u['id']:2d} {u['name']:20s} pos={u['pos']} tu={u['tu']}{hp_warn}")
+        print_map(m)
     else:
         print(json.dumps(m)[:300])
 
