@@ -19,6 +19,7 @@
 #include <algorithm>
 #include "ProjectileFlyBState.h"
 #include "ExplosionBState.h"
+#include "AIBridge.h"
 #include "Projectile.h"
 #include "TileEngine.h"
 #include "Map.h"
@@ -626,6 +627,23 @@ void ProjectileFlyBState::think()
 					_unit->aim(false);
 					_unit->setCache(0);
 					_parent->getMap()->cacheUnits();
+					// AI Bridge event: shot went off map (complete miss)
+					if (_projectileImpact == V_OUTOFBOUNDS)
+					{
+						AIBridge *bridge = _parent->getAIBridge();
+						if (bridge && _unit)
+						{
+							nlohmann::json ev;
+							ev["type"] = "shot_result";
+							ev["shooter"] = _unit->getId();
+							ev["hit"] = false;
+							if (_ammo)
+								ev["weapon"] = _ammo->getRules()->getName();
+							else if (_action.weapon)
+								ev["weapon"] = _action.weapon->getRules()->getName();
+							bridge->pushEvent(ev);
+						}
+					}
 				}
 			}
 
