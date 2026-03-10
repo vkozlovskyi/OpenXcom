@@ -270,6 +270,13 @@ void BattlescapeGame::executeAICommand(const AICommand &cmd)
 			return;
 		}
 
+		// Block BA_LAUNCH weapons (Blaster Launcher) — must use 'launch' command
+		if (weapon->getRules()->getWaypoints() > 0)
+		{
+			_aiBridge->notifyActionComplete(cmd.unitId, "shoot", false, "wrong_action_type");
+			return;
+		}
+
 		// Determine shot type
 		BattleActionType shotType = BA_SNAPSHOT;
 		if (cmd.shotType == "aimed")
