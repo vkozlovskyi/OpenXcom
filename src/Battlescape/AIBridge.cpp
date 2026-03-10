@@ -350,6 +350,7 @@ void AIBridge::processMessage(const std::string &line)
 	cmd.hand = msg.value("hand", "right");
 	cmd.shotType = msg.value("shot_type", "snap");
 	cmd.value = msg.value("fuse", 0);
+	cmd.exact = msg.value("exact", false);
 
 	// Parse target position [x, y, z]
 	if (msg.contains("target") && msg["target"].is_array() && msg["target"].size() == 3)

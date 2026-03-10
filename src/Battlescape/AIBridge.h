@@ -43,8 +43,9 @@ struct AICommand
 	std::string shotType; /// "snap","aimed","auto" (for shoot)
 	std::string hand;     /// "right","left" — which hand's weapon to use
 	int value;            /// fuse timer (for prime)
+	bool exact;           /// if true, walk fails instead of partial movement
 
-	AICommand() : unitId(-1), value(0) {}
+	AICommand() : unitId(-1), value(0), exact(false) {}
 };
 
 /**
