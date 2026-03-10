@@ -352,6 +352,17 @@ void AIBridge::processMessage(const std::string &line)
 	cmd.value = msg.value("fuse", 0);
 	cmd.exact = msg.value("exact", false);
 
+	// Parse 'from' position [x, y, z] for get_fire_options
+	if (msg.contains("from") && msg["from"].is_array() && msg["from"].size() == 3)
+	{
+		cmd.from = Position(
+			msg["from"][0].get<int>(),
+			msg["from"][1].get<int>(),
+			msg["from"][2].get<int>()
+		);
+		cmd.hasFrom = true;
+	}
+
 	// Parse target position [x, y, z]
 	if (msg.contains("target") && msg["target"].is_array() && msg["target"].size() == 3)
 	{
@@ -366,7 +377,8 @@ void AIBridge::processMessage(const std::string &line)
 	if (cmd.action != "select" && cmd.action != "walk" && cmd.action != "shoot" &&
 		cmd.action != "kneel" && cmd.action != "throw" && cmd.action != "prime" &&
 		cmd.action != "end_turn" && cmd.action != "get_reachable" &&
-		cmd.action != "get_path_cost")
+		cmd.action != "get_path_cost" &&
+		cmd.action != "get_fire_options")
 	{
 		sendError(cmd.action, cmd.unitId, "unknown_action");
 		return;

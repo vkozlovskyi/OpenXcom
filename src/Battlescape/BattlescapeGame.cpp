@@ -393,6 +393,128 @@ void BattlescapeGame::executeAICommand(const AICommand &cmd)
 			_aiBridge->notifyActionComplete(cmd.unitId, "prime", false, "not_enough_tu");
 		}
 	}
+	// --- GET FIRE OPTIONS ---
+	else if (cmd.action == "get_fire_options")
+	{
+		Position fromPos = cmd.hasFrom ? cmd.from : unit->getPosition();
+		Tile *fromTile = _save->getTile(fromPos);
+		if (!fromTile)
+		{
+			_aiBridge->notifyActionComplete(cmd.unitId, "get_fire_options", false, "invalid_position");
+			return;
+		}
+
+		// Build origin voxel from the 'from' position
+		BattleAction dummyAction;
+		dummyAction.actor = unit;
+		dummyAction.type = BA_SNAPSHOT; // doesn't affect origin voxel calc
+		Position originVoxel = _save->getTileEngine()->getOriginVoxel(dummyAction, fromTile);
+
+		// Determine which hand/weapon to evaluate
+		std::string slotName = (cmd.hand == "left") ? "STR_LEFT_HAND" : "STR_RIGHT_HAND";
+		BattleItem *weapon = unit->getItem(slotName);
+
+		nlohmann::json targets = nlohmann::json::array();
+		for (std::vector<BattleUnit*>::iterator i = _save->getUnits()->begin(); i != _save->getUnits()->end(); ++i)
+		{
+			BattleUnit *enemy = *i;
+			if (enemy->getFaction() != FACTION_HOSTILE || enemy->isOut()) continue;
+			// Only consider enemies visible to player
+			if (std::find(unit->getVisibleUnits()->begin(), unit->getVisibleUnits()->end(), enemy)
+				== unit->getVisibleUnits()->end()) continue;
+
+			Position enemyPos = enemy->getPosition();
+
+			// Check LOS from originVoxel to enemy
+			Position scanVoxel;
+			Tile *enemyTile = _save->getTile(enemyPos);
+			bool hasLos = _save->getTileEngine()->canTargetUnit(&originVoxel, enemyTile, &scanVoxel, unit, false);
+
+			int chanceSnap = 0, chanceAimed = 0, chanceAuto = 0;
+
+			if (hasLos && weapon && weapon->getRules()->getBattleType() == BT_FIREARM
+				&& weapon->getRules()->getWaypoints() == 0)
+			{
+				// Distance from 'from' position to enemy
+				int dx = fromPos.x - enemyPos.x;
+				int dy = fromPos.y - enemyPos.y;
+				int distanceSq = dx * dx + dy * dy;
+				int distance = (int)std::ceil(sqrt((float)distanceSq));
+
+				RuleItem *rules = weapon->getRules();
+				int lowerLimit = rules->getMinRange();
+
+				BattleActionType shotTypes[3] = {BA_SNAPSHOT, BA_AIMEDSHOT, BA_AUTOSHOT};
+				int *chances[3] = {&chanceSnap, &chanceAimed, &chanceAuto};
+
+				for (int s = 0; s < 3; ++s)
+				{
+					int weaponAcc = 0;
+					int upperLimit = 200;
+					switch (shotTypes[s])
+					{
+					case BA_SNAPSHOT:
+						weaponAcc = rules->getAccuracySnap();
+						upperLimit = rules->getSnapRange();
+						break;
+					case BA_AIMEDSHOT:
+						weaponAcc = rules->getAccuracyAimed();
+						upperLimit = rules->getAimRange();
+						break;
+					case BA_AUTOSHOT:
+						weaponAcc = rules->getAccuracyAuto();
+						upperLimit = rules->getAutoRange();
+						break;
+					default:
+						break;
+					}
+					if (weaponAcc == 0) continue; // shot type not available
+
+					int acc = unit->getFiringAccuracy(shotTypes[s], weapon);
+
+					// Distance dropoff
+					if (distance > upperLimit)
+						acc -= (distance - upperLimit) * rules->getDropoff();
+					else if (distance < lowerLimit)
+						acc -= (lowerLimit - distance) * rules->getDropoff();
+
+					// Out of range check
+					bool outOfRange = distanceSq > rules->getMaxRangeSq();
+					if (outOfRange)
+					{
+						if (rules->getMaxRange() == 1 && distanceSq <= 3)
+							outOfRange = false;
+						else if (rules->getMaxRange() == 2 && distanceSq <= 6)
+							outOfRange = false;
+					}
+
+					if (acc < 0 || outOfRange)
+						acc = 0;
+
+					*chances[s] = acc;
+				}
+			}
+
+			nlohmann::json t;
+			t["enemy_id"] = enemy->getId();
+			t["pos"] = {enemyPos.x, enemyPos.y, enemyPos.z};
+			t["chance_snap"] = chanceSnap;
+			t["chance_aimed"] = chanceAimed;
+			t["chance_auto"] = chanceAuto;
+			targets.push_back(t);
+		}
+
+		nlohmann::json msg;
+		msg["type"] = "action_complete";
+		msg["action"] = "get_fire_options";
+		msg["unit_id"] = cmd.unitId;
+		if (cmd.hasFrom)
+			msg["from"] = {fromPos.x, fromPos.y, fromPos.z};
+		msg["success"] = true;
+		msg["targets"] = targets;
+		msg["events"] = _aiBridge->flushEvents();
+		_aiBridge->sendMessage(msg);
+	}
 	// --- GET PATH COST ---
 	else if (cmd.action == "get_path_cost")
 	{

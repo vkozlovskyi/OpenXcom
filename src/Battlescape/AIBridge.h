@@ -44,8 +44,10 @@ struct AICommand
 	std::string hand;     /// "right","left" — which hand's weapon to use
 	int value;            /// fuse timer (for prime)
 	bool exact;           /// if true, walk fails instead of partial movement
+	Position from;        /// hypothetical position for get_fire_options (-1,-1,-1 = use current)
+	bool hasFrom;         /// whether 'from' was specified
 
-	AICommand() : unitId(-1), value(0), exact(false) {}
+	AICommand() : unitId(-1), value(0), exact(false), from(-1,-1,-1), hasFrom(false) {}
 };
 
 /**
