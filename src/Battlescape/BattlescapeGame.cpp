@@ -321,6 +321,58 @@ void BattlescapeGame::executeAICommand(const AICommand &cmd)
 		statePushBack(new UnitTurnBState(this, action));
 		statePushBack(new ProjectileFlyBState(this, action));
 	}
+	// --- LAUNCH ---
+	else if (cmd.action == "launch")
+	{
+		std::string slotName = (cmd.hand == "left") ? "STR_LEFT_HAND" : "STR_RIGHT_HAND";
+		BattleItem *weapon = unit->getItem(slotName);
+		if (!weapon)
+		{
+			_aiBridge->notifyActionComplete(cmd.unitId, "launch", false, "no_weapon");
+			return;
+		}
+
+		// Verify weapon is a waypoint launcher
+		int maxWaypoints = weapon->getRules()->getWaypoints();
+		if (maxWaypoints == 0 && weapon->getAmmoItem())
+			maxWaypoints = weapon->getAmmoItem()->getRules()->getWaypoints();
+		if (maxWaypoints == 0)
+		{
+			_aiBridge->notifyActionComplete(cmd.unitId, "launch", false, "wrong_action_type");
+			return;
+		}
+
+		// Check ammo
+		if (!weapon->getAmmoItem())
+		{
+			_aiBridge->notifyActionComplete(cmd.unitId, "launch", false, "no_ammo");
+			return;
+		}
+
+		BattleAction action;
+		action.actor = unit;
+		action.weapon = weapon;
+		action.type = BA_LAUNCH;
+		action.target = cmd.target;
+		action.TU = unit->getActionTUs(BA_LAUNCH, weapon);
+		action.targeting = true;
+
+		// Validate TU
+		if (action.TU > unit->getTimeUnits())
+		{
+			_aiBridge->notifyActionComplete(cmd.unitId, "launch", false, "not_enough_tu");
+			return;
+		}
+
+		// Set target as the single waypoint — engine auto-routes
+		action.waypoints.push_back(cmd.target);
+
+		_save->setSelectedUnit(unit);
+		getMap()->getCamera()->centerOnPosition(unit->getPosition());
+		_aiBridge->setActionExecuting(cmd.unitId, "launch");
+		statePushBack(new UnitTurnBState(this, action));
+		statePushBack(new ProjectileFlyBState(this, action));
+	}
 	// --- THROW ---
 	else if (cmd.action == "throw")
 	{
