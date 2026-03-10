@@ -64,16 +64,31 @@ Move a unit to target tile. Async — unit animates, then `action_complete`.
 {"action": "walk", "unit_id": 3, "target": [10, 15, 0]}
 ```
 
-Errors: `no_path`, `not_enough_tu`, `unit_not_found`
+Optional `"exact": true` — if unit cannot reach the exact target tile, return error instead of partial movement:
+```json
+{"action": "walk", "unit_id": 3, "target": [10, 15, 0], "exact": true}
+```
+
+Errors: `no_path`, `not_enough_tu` (with `exact`: includes `tu` and `tu_cost` fields), `unit_not_found`
 
 ### shoot
 Fire a weapon at a tile. `shot_type`: `"snap"`, `"aimed"`, `"auto"`. `hand`: `"right"` (default) or `"left"`.
+**Cannot be used on waypoint weapons (Blaster Launcher)** — use `launch` instead.
 
 ```json
 {"action": "shoot", "unit_id": 3, "target": [10, 15, 0], "shot_type": "aimed", "hand": "right"}
 ```
 
-Errors: `no_weapon`, `no_ammo`, `not_enough_tu`
+Errors: `no_weapon`, `no_ammo`, `not_enough_tu`, `wrong_action_type`
+
+### launch
+Fire a waypoint weapon (Blaster Launcher) at a target tile. Engine auto-routes the missile.
+
+```json
+{"action": "launch", "unit_id": 3, "target": [12, 10, 0]}
+```
+
+Errors: `no_weapon`, `no_ammo`, `not_enough_tu`, `wrong_action_type` (weapon is not a launcher)
 
 ### throw
 Throw held item at target tile.
@@ -111,6 +126,70 @@ Response:
   "unit_id": 3,
   "success": true,
   "tiles": [[10,15,0, 8], [11,15,0, 12], ...]  // [x, y, z, tu_cost]
+}
+```
+
+### get_path_cost
+Read-only query. Returns TU cost to reach target tile without moving.
+
+```json
+{"action": "get_path_cost", "unit_id": 3, "target": [8, 17, 0]}
+```
+
+Success response:
+```json
+{"type": "action_complete", "action": "get_path_cost", "unit_id": 3, "target": [8, 17, 0], "tu_cost": 24, "success": true}
+```
+
+Errors: `no_path`
+
+### get_fire_options
+Read-only query. Returns hit chances for all visible enemies across all shot types. Use `from` for hypothetical position planning (e.g. "what can I hit from there?"). Zero chances = no line of fire = full cover.
+
+Current position:
+```json
+{"action": "get_fire_options", "unit_id": 3}
+```
+
+Hypothetical position:
+```json
+{"action": "get_fire_options", "unit_id": 3, "from": [8, 15, 0]}
+```
+
+Response:
+```json
+{
+  "type": "action_complete",
+  "action": "get_fire_options",
+  "unit_id": 3,
+  "from": [8, 15, 0],
+  "success": true,
+  "targets": [
+    {"enemy_id": 20, "pos": [12, 10, 0], "chance_snap": 34, "chance_aimed": 67, "chance_auto": 18},
+    {"enemy_id": 21, "pos": [8, 5, 0], "chance_snap": 0, "chance_aimed": 0, "chance_auto": 0}
+  ]
+}
+```
+
+### get_blast_check
+Read-only query. Returns friendly units within blast radius of a target tile. Pure geometry, no unit_id required.
+
+```json
+{"action": "get_blast_check", "target": [12, 10, 0], "radius": 3}
+```
+
+Response:
+```json
+{
+  "type": "action_complete",
+  "action": "get_blast_check",
+  "success": true,
+  "target": [12, 10, 0],
+  "radius": 3,
+  "friendlies_at_risk": [
+    {"unit_id": 5, "pos": [13, 11, 0], "distance": 1},
+    {"unit_id": 8, "pos": [10, 10, 0], "distance": 2}
+  ]
 }
 ```
 
@@ -165,7 +244,7 @@ Returned when a command fails validation.
 }
 ```
 
-Possible errors: `no_path`, `not_enough_tu`, `no_weapon`, `no_ammo`, `unit_not_found`, `missing_unit_id`, `missing_target`, `unknown_action`, `busy`
+Possible errors: `no_path`, `not_enough_tu`, `no_weapon`, `no_ammo`, `unit_not_found`, `missing_unit_id`, `missing_target`, `unknown_action`, `busy`, `wrong_action_type`, `invalid_position`
 
 ---
 
@@ -373,7 +452,13 @@ Fully explored map: estimated **~2,000-3,000 tokens**.
 ```bash
 python3 test_interactive.py '{"action":"get_state","include_map":true}'
 python3 test_interactive.py '{"action":"walk","unit_id":1,"target":[13,18,0]}'
+python3 test_interactive.py '{"action":"walk","unit_id":1,"target":[13,18,0],"exact":true}'
 python3 test_interactive.py '{"action":"shoot","unit_id":1,"target":[12,10,0],"shot_type":"snap"}'
+python3 test_interactive.py '{"action":"launch","unit_id":1,"target":[12,10,0]}'
+python3 test_interactive.py '{"action":"get_path_cost","unit_id":1,"target":[8,17,0]}'
+python3 test_interactive.py '{"action":"get_fire_options","unit_id":1}'
+python3 test_interactive.py '{"action":"get_fire_options","unit_id":1,"from":[8,15,0]}'
+python3 test_interactive.py '{"action":"get_blast_check","target":[12,10,0],"radius":3}'
 python3 test_interactive.py '{"action":"end_turn"}'
 ```
 
