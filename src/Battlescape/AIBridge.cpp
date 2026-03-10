@@ -364,7 +364,8 @@ void AIBridge::processMessage(const std::string &line)
 	// Validate action type
 	if (cmd.action != "select" && cmd.action != "walk" && cmd.action != "shoot" &&
 		cmd.action != "kneel" && cmd.action != "throw" && cmd.action != "prime" &&
-		cmd.action != "end_turn" && cmd.action != "get_reachable")
+		cmd.action != "end_turn" && cmd.action != "get_reachable" &&
+		cmd.action != "get_path_cost")
 	{
 		sendError(cmd.action, cmd.unitId, "unknown_action");
 		return;
@@ -378,8 +379,8 @@ void AIBridge::processMessage(const std::string &line)
 	}
 
 	// Validate target is present for actions that need it
-	if ((cmd.action == "walk" || cmd.action == "shoot" || cmd.action == "throw") &&
-		!msg.contains("target"))
+	if ((cmd.action == "walk" || cmd.action == "shoot" || cmd.action == "throw" ||
+		cmd.action == "get_path_cost") && !msg.contains("target"))
 	{
 		sendError(cmd.action, cmd.unitId, "missing_target");
 		return;

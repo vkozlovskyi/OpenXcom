@@ -377,6 +377,29 @@ void BattlescapeGame::executeAICommand(const AICommand &cmd)
 			_aiBridge->notifyActionComplete(cmd.unitId, "prime", false, "not_enough_tu");
 		}
 	}
+	// --- GET PATH COST ---
+	else if (cmd.action == "get_path_cost")
+	{
+		Pathfinding *pf = _save->getPathfinding();
+		pf->calculate(unit, cmd.target);
+		if (pf->getStartDirection() != -1)
+		{
+			nlohmann::json msg;
+			msg["type"] = "action_complete";
+			msg["action"] = "get_path_cost";
+			msg["unit_id"] = cmd.unitId;
+			msg["target"] = {cmd.target.x, cmd.target.y, cmd.target.z};
+			msg["tu_cost"] = pf->getTotalTUCost();
+			msg["success"] = true;
+			msg["events"] = _aiBridge->flushEvents();
+			_aiBridge->sendMessage(msg);
+		}
+		else
+		{
+			_aiBridge->notifyActionComplete(cmd.unitId, "get_path_cost", false, "no_path");
+		}
+		pf->abortPath();
+	}
 	// --- GET REACHABLE ---
 	else if (cmd.action == "get_reachable")
 	{
