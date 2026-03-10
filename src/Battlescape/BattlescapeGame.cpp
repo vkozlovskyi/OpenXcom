@@ -210,8 +210,8 @@ void BattlescapeGame::executeAICommand(const AICommand &cmd)
 		}
 	}
 
-	// Validate unit exists (except for end_turn)
-	if (cmd.action != "end_turn" && (!unit || unit->isOut()))
+	// Validate unit exists (except for end_turn and get_blast_check)
+	if (cmd.action != "end_turn" && cmd.action != "get_blast_check" && (!unit || unit->isOut()))
 	{
 		_aiBridge->notifyActionComplete(cmd.unitId, cmd.action, false, "invalid_unit");
 		return;
@@ -512,6 +512,39 @@ void BattlescapeGame::executeAICommand(const AICommand &cmd)
 			msg["from"] = {fromPos.x, fromPos.y, fromPos.z};
 		msg["success"] = true;
 		msg["targets"] = targets;
+		msg["events"] = _aiBridge->flushEvents();
+		_aiBridge->sendMessage(msg);
+	}
+	// --- GET BLAST CHECK ---
+	else if (cmd.action == "get_blast_check")
+	{
+		nlohmann::json friendlies = nlohmann::json::array();
+		for (std::vector<BattleUnit*>::iterator i = _save->getUnits()->begin(); i != _save->getUnits()->end(); ++i)
+		{
+			BattleUnit *u = *i;
+			if (u->getFaction() != FACTION_PLAYER || u->isOut()) continue;
+			Position p = u->getPosition();
+			int dx = p.x - cmd.target.x;
+			int dy = p.y - cmd.target.y;
+			int dz = p.z - cmd.target.z;
+			double dist = std::sqrt((double)(dx * dx + dy * dy + dz * dz));
+			if (dist <= cmd.radius)
+			{
+				nlohmann::json f;
+				f["unit_id"] = u->getId();
+				f["pos"] = {p.x, p.y, p.z};
+				f["distance"] = (int)std::ceil(dist);
+				friendlies.push_back(f);
+			}
+		}
+
+		nlohmann::json msg;
+		msg["type"] = "action_complete";
+		msg["action"] = "get_blast_check";
+		msg["success"] = true;
+		msg["target"] = {cmd.target.x, cmd.target.y, cmd.target.z};
+		msg["radius"] = cmd.radius;
+		msg["friendlies_at_risk"] = friendlies;
 		msg["events"] = _aiBridge->flushEvents();
 		_aiBridge->sendMessage(msg);
 	}

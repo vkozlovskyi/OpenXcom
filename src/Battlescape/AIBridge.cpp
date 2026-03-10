@@ -351,6 +351,7 @@ void AIBridge::processMessage(const std::string &line)
 	cmd.shotType = msg.value("shot_type", "snap");
 	cmd.value = msg.value("fuse", 0);
 	cmd.exact = msg.value("exact", false);
+	cmd.radius = msg.value("radius", 0);
 
 	// Parse 'from' position [x, y, z] for get_fire_options
 	if (msg.contains("from") && msg["from"].is_array() && msg["from"].size() == 3)
@@ -378,14 +379,15 @@ void AIBridge::processMessage(const std::string &line)
 		cmd.action != "kneel" && cmd.action != "throw" && cmd.action != "prime" &&
 		cmd.action != "end_turn" && cmd.action != "get_reachable" &&
 		cmd.action != "get_path_cost" &&
-		cmd.action != "get_fire_options")
+		cmd.action != "get_fire_options" &&
+		cmd.action != "get_blast_check")
 	{
 		sendError(cmd.action, cmd.unitId, "unknown_action");
 		return;
 	}
 
 	// Validate unit_id is present for actions that need it
-	if (cmd.action != "end_turn" && cmd.unitId < 0)
+	if (cmd.action != "end_turn" && cmd.action != "get_blast_check" && cmd.unitId < 0)
 	{
 		sendError(cmd.action, cmd.unitId, "missing_unit_id");
 		return;
@@ -393,7 +395,7 @@ void AIBridge::processMessage(const std::string &line)
 
 	// Validate target is present for actions that need it
 	if ((cmd.action == "walk" || cmd.action == "shoot" || cmd.action == "throw" ||
-		cmd.action == "get_path_cost") && !msg.contains("target"))
+		cmd.action == "get_path_cost" || cmd.action == "get_blast_check") && !msg.contains("target"))
 	{
 		sendError(cmd.action, cmd.unitId, "missing_target");
 		return;

@@ -46,8 +46,9 @@ struct AICommand
 	bool exact;           /// if true, walk fails instead of partial movement
 	Position from;        /// hypothetical position for get_fire_options (-1,-1,-1 = use current)
 	bool hasFrom;         /// whether 'from' was specified
+	int radius;           /// blast radius for get_blast_check
 
-	AICommand() : unitId(-1), value(0), exact(false), from(-1,-1,-1), hasFrom(false) {}
+	AICommand() : unitId(-1), value(0), exact(false), from(-1,-1,-1), hasFrom(false), radius(0) {}
 };
 
 /**
