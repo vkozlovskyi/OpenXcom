@@ -1146,6 +1146,27 @@ void AIBridge::pushEvent(const nlohmann::json &event)
 }
 
 /**
+ * Inserts an event at a specific position in the queue.
+ * Used to ensure shot_result appears before unit_wounded/unit_killed events.
+ */
+void AIBridge::insertEvent(size_t pos, const nlohmann::json &event)
+{
+	if (pos >= _eventQueue.size())
+		_eventQueue.push_back(event);
+	else
+		_eventQueue.insert(_eventQueue.begin() + pos, event);
+	Log(LOG_DEBUG) << "AIBridge: event inserted at " << pos << ": " << event.value("type", "unknown");
+}
+
+/**
+ * Returns current event queue size.
+ */
+size_t AIBridge::getEventCount() const
+{
+	return _eventQueue.size();
+}
+
+/**
  * Marks the ASCII map as dirty — next action_complete will attach updated map.
  */
 void AIBridge::setMapDirty()

@@ -237,10 +237,14 @@ void ExplosionBState::explode()
 		{
 			ItemDamageType type = _item->getRules()->getDamageType();
 
+			// Remember event queue position so shot_result is inserted before any unit_wounded/unit_killed events from hit()
+			AIBridge *bridge = _parent->getAIBridge();
+			size_t eventPosBefore = bridge ? bridge->getEventCount() : 0;
+
 			victim = save->getTileEngine()->hit(_center, _power, type, _unit);
 
 			// AI Bridge event: shot result (hit or miss for direct fire)
-			AIBridge *bridge = _parent->getAIBridge();
+			// Inserted at saved position so it appears before wound/kill events
 			if (bridge && _unit)
 			{
 				nlohmann::json ev;
@@ -253,7 +257,7 @@ void ExplosionBState::explode()
 					ev["target"] = victim->getId();
 					ev["target_faction"] = victim->getFaction() == FACTION_PLAYER ? "player" : victim->getFaction() == FACTION_HOSTILE ? "hostile" : "neutral";
 				}
-				bridge->pushEvent(ev);
+				bridge->insertEvent(eventPosBefore, ev);
 			}
 		}
 		// check if this unit turns others into zombies

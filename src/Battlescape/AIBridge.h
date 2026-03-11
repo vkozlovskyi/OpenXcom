@@ -157,6 +157,10 @@ public:
 	void setMapDirty();
 	/// Pushes an event to the queue (will be sent with the next response).
 	void pushEvent(const nlohmann::json &event);
+	/// Inserts an event at a specific position in the queue.
+	void insertEvent(size_t pos, const nlohmann::json &event);
+	/// Returns current event queue size.
+	size_t getEventCount() const;
 	/// Returns pending events as JSON array and clears the queue.
 	nlohmann::json flushEvents();
 };
