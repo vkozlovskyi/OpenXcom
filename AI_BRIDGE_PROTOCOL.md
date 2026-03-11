@@ -104,6 +104,17 @@ Toggle kneeling. Costs 4 TU.
 {"action": "kneel", "unit_id": 3}
 ```
 
+### turn
+Turn a unit to face a direction. Costs 1 TU per 45° step (shortest path). Async — unit animates, then `action_complete`. Reveals fog of war in the new direction.
+
+`direction`: 0=N, 1=NE, 2=E, 3=SE, 4=S, 5=SW, 6=W, 7=NW
+
+```json
+{"action": "turn", "unit_id": 3, "direction": 4}
+```
+
+Errors: `invalid_direction`, `not_enough_tu`
+
 ### prime
 Prime a grenade. `fuse`: 0 = contact, 1-4 = timer turns.
 

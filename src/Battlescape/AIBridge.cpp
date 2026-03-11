@@ -349,7 +349,7 @@ void AIBridge::processMessage(const std::string &line)
 	cmd.unitId = msg.value("unit_id", -1);
 	cmd.hand = msg.value("hand", "right");
 	cmd.shotType = msg.value("shot_type", "snap");
-	cmd.value = msg.value("fuse", 0);
+	cmd.value = msg.value("fuse", msg.value("direction", 0));
 	cmd.exact = msg.value("exact", false);
 	cmd.radius = msg.value("radius", 0);
 
@@ -381,7 +381,8 @@ void AIBridge::processMessage(const std::string &line)
 		cmd.action != "get_path_cost" &&
 		cmd.action != "get_fire_options" &&
 		cmd.action != "get_blast_check" &&
-		cmd.action != "launch")
+		cmd.action != "launch" &&
+		cmd.action != "turn")
 	{
 		sendError(cmd.action, cmd.unitId, "unknown_action");
 		return;

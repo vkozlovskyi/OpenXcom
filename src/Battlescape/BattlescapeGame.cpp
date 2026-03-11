@@ -411,6 +411,46 @@ void BattlescapeGame::executeAICommand(const AICommand &cmd)
 		bool ok = kneel(unit);
 		_aiBridge->notifyActionComplete(cmd.unitId, "kneel", ok, ok ? "" : "cannot_kneel");
 	}
+	// --- TURN ---
+	else if (cmd.action == "turn")
+	{
+		int direction = cmd.value;
+		if (direction < 0 || direction > 7)
+		{
+			_aiBridge->notifyActionComplete(cmd.unitId, "turn", false, "invalid_direction");
+			return;
+		}
+		if (direction == unit->getDirection())
+		{
+			// Already facing that direction — no-op success
+			_aiBridge->notifyActionComplete(cmd.unitId, "turn", true, "");
+			return;
+		}
+		// Estimate TU cost: 1 TU per 45-degree step (shortest path around the compass)
+		int diff = std::abs(direction - unit->getDirection());
+		if (diff > 4) diff = 8 - diff;
+		if (diff > unit->getTimeUnits())
+		{
+			_aiBridge->notifyActionComplete(cmd.unitId, "turn", false, "not_enough_tu");
+			return;
+		}
+
+		_save->setSelectedUnit(unit);
+		getMap()->getCamera()->centerOnPosition(unit->getPosition());
+
+		BattleAction action;
+		action.actor = unit;
+		action.type = BA_NONE;
+		// Convert direction to a target position the unit should face
+		// Use offsets: N=0,-1  NE=1,-1  E=1,0  SE=1,1  S=0,1  SW=-1,1  W=-1,0  NW=-1,-1
+		const int dirX[] = {0, 1, 1, 1, 0, -1, -1, -1};
+		const int dirY[] = {-1, -1, 0, 1, 1, 1, 0, -1};
+		Position pos = unit->getPosition();
+		action.target = Position(pos.x + dirX[direction], pos.y + dirY[direction], pos.z);
+
+		_aiBridge->setActionExecuting(cmd.unitId, "turn");
+		statePushBack(new UnitTurnBState(this, action));
+	}
 	// --- PRIME ---
 	else if (cmd.action == "prime")
 	{
