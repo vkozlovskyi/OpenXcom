@@ -49,6 +49,52 @@ def recv_messages(sock, timeout=10.0):
             break
     return msgs, buf
 
+def print_unit(u):
+    """Print a unit with status and weapons."""
+    kneel = " [kneeling]" if u.get('kneeling') else ""
+    morale = f" mor={u.get('morale','?')}"
+    energy = f" en={u.get('energy','?')}/{u.get('energy_max','?')}"
+    hp_warn = " !!WOUNDED!!" if u['hp'] < u.get('hp_max', u['hp']) else ""
+    print(f"  {u['id']:2d} {u['name']:20s} pos={u['pos']} tu={u['tu']}/{u.get('tu_max', '?')} hp={u['hp']}{energy}{morale}{kneel}{hp_warn}")
+    for item in u.get('inventory', []):
+        if item.get('slot') in ('STR_RIGHT_HAND', 'STR_LEFT_HAND'):
+            hand = 'R' if item['slot'] == 'STR_RIGHT_HAND' else 'L'
+            ammo = f" ammo={item['ammo_qty']}" if 'ammo_qty' in item else ""
+            tu_info = ""
+            if 'tu_snap' in item:
+                parts = []
+                for mode in ('snap', 'aimed', 'auto'):
+                    if f'tu_{mode}' in item:
+                        parts.append(f"{mode}={item[f'tu_{mode}']}({item.get(f'accuracy_{mode}',0)}%)")
+                tu_info = " " + " ".join(parts)
+            print(f"      [{hand}] {item['type']}{ammo}{tu_info}")
+
+def print_map(m):
+    amap = m.get('ascii_map', {})
+    if not amap:
+        return
+    legend = m.get('map_legend', {})
+    if legend:
+        print(f"  MAP LEGEND: {' '.join(k+'='+v for k,v in legend.items())}")
+    for z in sorted(amap.keys(), key=lambda x: int(x)):
+        lines = amap[z].split('\n')
+        nonblank = [l for l in lines if l.strip()]
+        if nonblank:
+            print(f"  === Z={z} ===")
+            for l in nonblank:
+                print(f"  {l}")
+
+def print_enemies(m):
+    enemies = m.get('visible_enemies', [])
+    if enemies:
+        print(f"ENEMIES: {len(enemies)}")
+        for e in enemies:
+            print(f"  {e['id']} {e.get('name','?')} at {e['pos']}")
+
+def print_events(m):
+    for ev in m.get('events', []):
+        print(f"  EVENT: {json.dumps(ev)}")
+
 sock = connect()
 # Drain hello + turn_start
 msgs, buf = recv_messages(sock, timeout=3.0)
@@ -72,21 +118,6 @@ if len(sys.argv) < 2:
     sock.close()
     sys.exit(0)
 
-def print_map(m):
-    amap = m.get('ascii_map', {})
-    if not amap:
-        return
-    legend = m.get('map_legend', {})
-    if legend:
-        print(f"  MAP LEGEND: {' '.join(k+'='+v for k,v in legend.items())}")
-    for z in sorted(amap.keys(), key=lambda x: int(x)):
-        lines = amap[z].split('\n')
-        nonblank = [l for l in lines if l.strip()]
-        if nonblank:
-            print(f"  === Z={z} ===")
-            for l in nonblank:
-                print(f"  {l}")
-
 cmd = sys.argv[1]
 sock.sendall((cmd + '\n').encode())
 msgs, buf = recv_messages(sock, timeout=30.0)
@@ -105,40 +136,36 @@ for m in msgs:
                 display['tiles'] = f"[{n} tiles]"
             print(json.dumps(display, indent=2))
         else:
-            print(f"{'OK' if ok else 'FAIL'} pos={m.get('pos')} tu={m.get('tu')} energy={m.get('energy')} hp={m.get('hp')}{' err='+err if err else ''}")
+            ammo = ""
+            if 'ammo_right' in m:
+                ammo += f" ammo_r={m['ammo_right']}"
+            if 'ammo_left' in m:
+                ammo += f" ammo_l={m['ammo_left']}"
+            dir_info = f" dir={m['direction']}" if 'direction' in m else ""
+            morale = f" mor={m['morale']}" if 'morale' in m else ""
+            print(f"{'OK' if ok else 'FAIL'} pos={m.get('pos')} tu={m.get('tu')} energy={m.get('energy')} hp={m.get('hp')}{dir_info}{morale}{ammo}{' err='+err if err else ''}")
         enemies = m.get('visible_enemies', [])
         if enemies:
             print(f"ENEMIES SPOTTED: {len(enemies)}")
             for e in enemies:
                 print(f"  id={e['id']} pos={e['pos']}")
-        for ev in m.get('events', []):
-            print(f"  EVENT: {json.dumps(ev)}")
+        print_events(m)
         print_map(m)
     elif t == 'action_error':
         print(f"ERROR: {m.get('error')} (action={m.get('action')})")
+        print_events(m)
     elif t == 'game_state':
         for u in m.get('units', []):
-            print(f"  {u['id']:2d} {u['name']:20s} pos={u['pos']} tu={u['tu']}/{u['tu_max']} hp={u['hp']}")
-        enemies = m.get('visible_enemies', [])
-        if enemies:
-            print(f"ENEMIES: {len(enemies)}")
-            for e in enemies:
-                print(f"  {e['id']} {e.get('name','?')} at {e['pos']}")
-        for ev in m.get('events', []):
-            print(f"  EVENT: {json.dumps(ev)}")
+            print_unit(u)
+        print_enemies(m)
+        print_events(m)
         print_map(m)
     elif t == 'turn_start':
         print(f"[turn {m['turn']} started]")
-        for ev in m.get('events', []):
-            print(f"  EVENT: {json.dumps(ev)}")
-        enemies = m.get('visible_enemies', [])
-        if enemies:
-            print(f"ENEMIES: {len(enemies)}")
-            for e in enemies:
-                print(f"  {e['id']} {e.get('name','?')} at {e['pos']}")
+        print_events(m)
+        print_enemies(m)
         for u in m.get('units', []):
-            hp_warn = " !!WOUNDED!!" if u['hp'] < u['hp_max'] else ""
-            print(f"  {u['id']:2d} {u['name']:20s} pos={u['pos']} tu={u['tu']}{hp_warn}")
+            print_unit(u)
         print_map(m)
     else:
         print(json.dumps(m)[:300])
