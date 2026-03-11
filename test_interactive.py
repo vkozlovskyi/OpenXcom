@@ -96,7 +96,16 @@ for m in msgs:
     if t == 'action_complete':
         ok = m.get('success', '?')
         err = m.get('error', '')
-        print(f"{'OK' if ok else 'FAIL'} pos={m.get('pos')} tu={m.get('tu')} energy={m.get('energy')} hp={m.get('hp')}{' err='+err if err else ''}")
+        action = m.get('action', '?')
+        # Read-only queries: print full JSON (minus large fields)
+        if action in ('get_path_cost', 'get_fire_options', 'get_blast_check', 'get_reachable'):
+            display = {k: v for k, v in m.items() if k not in ('ascii_map', 'map_legend')}
+            if action == 'get_reachable' and 'tiles' in display:
+                n = len(display['tiles'])
+                display['tiles'] = f"[{n} tiles]"
+            print(json.dumps(display, indent=2))
+        else:
+            print(f"{'OK' if ok else 'FAIL'} pos={m.get('pos')} tu={m.get('tu')} energy={m.get('energy')} hp={m.get('hp')}{' err='+err if err else ''}")
         enemies = m.get('visible_enemies', [])
         if enemies:
             print(f"ENEMIES SPOTTED: {len(enemies)}")
