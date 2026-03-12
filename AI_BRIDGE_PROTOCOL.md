@@ -64,12 +64,9 @@ Move a unit to target tile. Async — unit animates, then `action_complete`.
 {"action": "walk", "unit_id": 3, "target": [10, 15, 0]}
 ```
 
-Optional `"exact": true` — if unit cannot reach the exact target tile, return error instead of partial movement:
-```json
-{"action": "walk", "unit_id": 3, "target": [10, 15, 0], "exact": true}
-```
+If the path is blocked mid-walk (e.g. another unit on the route), the unit stops early. The response always includes `pos` — compare with your target to detect partial movement. Use `get_path_cost` beforehand to check reachability.
 
-Errors: `no_path`, `not_enough_tu` (with `exact`: includes `tu` and `tu_cost` fields), `unit_not_found`
+Errors: `no_path`, `unit_not_found`
 
 ### shoot
 Fire a weapon at a tile. `shot_type`: `"snap"`, `"aimed"`, `"auto"`. `hand`: `"right"` (default) or `"left"`.
@@ -463,7 +460,7 @@ Fully explored map: estimated **~2,000-3,000 tokens**.
 ```bash
 python3 test_interactive.py '{"action":"get_state","include_map":true}'
 python3 test_interactive.py '{"action":"walk","unit_id":1,"target":[13,18,0]}'
-python3 test_interactive.py '{"action":"walk","unit_id":1,"target":[13,18,0],"exact":true}'
+python3 test_interactive.py '{"action":"shoot","unit_id":1,"target":[12,10,0],"shot_type":"aimed"}'
 python3 test_interactive.py '{"action":"shoot","unit_id":1,"target":[12,10,0],"shot_type":"snap"}'
 python3 test_interactive.py '{"action":"launch","unit_id":1,"target":[12,10,0]}'
 python3 test_interactive.py '{"action":"get_path_cost","unit_id":1,"target":[8,17,0]}'

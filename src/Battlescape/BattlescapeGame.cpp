@@ -250,24 +250,8 @@ void BattlescapeGame::executeAICommand(const AICommand &cmd)
 		_save->getPathfinding()->calculate(unit, cmd.target);
 		if (_save->getPathfinding()->getStartDirection() != -1)
 		{
-			if (cmd.exact && _save->getPathfinding()->getTotalTUCost() > unit->getTimeUnits())
-			{
-				nlohmann::json msg;
-				msg["type"] = "action_error";
-				msg["action"] = "walk";
-				msg["unit_id"] = cmd.unitId;
-				msg["error"] = "not_enough_tu";
-				msg["tu"] = unit->getTimeUnits();
-				msg["tu_cost"] = _save->getPathfinding()->getTotalTUCost();
-				msg["events"] = _aiBridge->flushEvents();
-				_aiBridge->sendMessage(msg);
-				_save->getPathfinding()->abortPath();
-			}
-			else
-			{
-				_aiBridge->setActionExecuting(cmd.unitId, "walk");
-				statePushBack(new UnitWalkBState(this, action));
-			}
+			_aiBridge->setActionExecuting(cmd.unitId, "walk");
+			statePushBack(new UnitWalkBState(this, action));
 		}
 		else
 		{

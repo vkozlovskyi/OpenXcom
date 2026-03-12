@@ -350,7 +350,6 @@ void AIBridge::processMessage(const std::string &line)
 	cmd.hand = msg.value("hand", "right");
 	cmd.shotType = msg.value("shot_type", "snap");
 	cmd.value = msg.value("fuse", msg.value("direction", 0));
-	cmd.exact = msg.value("exact", false);
 	cmd.radius = msg.value("radius", 0);
 
 	// Parse 'from' position [x, y, z] for get_fire_options
