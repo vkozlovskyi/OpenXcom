@@ -529,10 +529,11 @@ nlohmann::json AIBridge::serializeGameState(int turn, Language *lang) const
 
 		units.push_back(serializeUnit(unit, lang));
 
-		// Collect visible enemies (deduplicated)
+		// Collect visible enemies (deduplicated, skip dead/stunned)
 		for (std::vector<BattleUnit*>::iterator e = unit->getVisibleUnits()->begin(); e != unit->getVisibleUnits()->end(); ++e)
 		{
 			BattleUnit *enemy = *e;
+			if (enemy->isOut()) continue;
 			if (seenEnemyIds.find(enemy->getId()) == seenEnemyIds.end())
 			{
 				seenEnemyIds.insert(enemy->getId());
@@ -725,11 +726,12 @@ nlohmann::json AIBridge::serializeUnit(BattleUnit *unit, Language *lang) const
 	}
 	j["inventory"] = inv;
 
-	// IDs of visible enemies (full data in top-level visible_enemies)
+	// IDs of visible enemies (full data in top-level visible_enemies, skip dead/stunned)
 	nlohmann::json visIds = nlohmann::json::array();
 	for (std::vector<BattleUnit*>::iterator it = unit->getVisibleUnits()->begin(); it != unit->getVisibleUnits()->end(); ++it)
 	{
-		visIds.push_back((*it)->getId());
+		if (!(*it)->isOut())
+			visIds.push_back((*it)->getId());
 	}
 	j["visible_enemies"] = visIds;
 
