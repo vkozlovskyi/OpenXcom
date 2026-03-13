@@ -138,7 +138,7 @@ Response:
 ```
 
 ### get_path_cost
-Read-only query. Returns TU cost to reach target tile without moving.
+Read-only query. Returns TU cost and full path to reach target tile without moving.
 
 ```json
 {"action": "get_path_cost", "unit_id": 3, "target": [8, 17, 0]}
@@ -146,8 +146,18 @@ Read-only query. Returns TU cost to reach target tile without moving.
 
 Success response:
 ```json
-{"type": "action_complete", "action": "get_path_cost", "unit_id": 3, "target": [8, 17, 0], "tu_cost": 24, "success": true}
+{
+  "type": "action_complete",
+  "action": "get_path_cost",
+  "unit_id": 3,
+  "target": [8, 17, 0],
+  "tu_cost": 24,
+  "path": [[9,18,0,4],[9,17,0,8],[8,17,0,12]],
+  "success": true
+}
 ```
+
+`path`: array of waypoints `[x, y, z, cumulative_tu]`. Each entry is a tile along the route with the total TU cost to reach it. Use this to pick intermediate destinations (e.g. walk halfway when TU is limited).
 
 Errors: `no_path`
 
@@ -409,28 +419,19 @@ Battle types: `firearm`, `ammo`, `melee`, `grenade`, `proximity_grenade`, `medik
 
 ## ASCII Map Format
 
-2x2 character block per tile:
+1x1 character per tile with coordinate axes. Only the bounding box of discovered tiles is rendered. No walls — cover is checked via `get_fire_options`, passability via `get_path_cost`.
+
+Example:
 ```
-[corner][north_wall]
-[west_wall][floor]
+        10 11 12 13 14 15
+  22:    a  a  .  a  #  a
+  23:    a  #  a  1  a  a
+  24:    a  X  a  a  #  a
 ```
 
-### Corner
-`+` always (where discovered)
+X-axis coordinates in header row, Y-axis coordinates as row labels. Column width adjusts to coordinate digits.
 
-### Walls
-| Char | Meaning |
-|------|---------|
-| `-`  | North wall (regular) |
-| `\|` | West wall (regular) |
-| `=`  | North wall (UFO hull, armor 80+) |
-| `!`  | West wall (UFO hull, armor 80+) |
-| `;`  | North fence/light wall (armor <=20) |
-| `:`  | West fence/light wall (armor <=20) |
-| `\`  | Door (any direction) |
-| ` `  | No wall |
-
-### Floor
+### Tile Characters
 | Char | Meaning |
 |------|---------|
 | `.`  | Generic walkable floor |
@@ -445,13 +446,6 @@ Battle types: `firearm`, `ammo`, `melee`, `grenade`, `proximity_grenade`, `medik
 | `*`  | Fire |
 | `1-9`, `A-E` | Player unit (by index) |
 | `X`  | Visible enemy |
-
----
-
-## Map Size (measured)
-
-Typical map at battle start (partial fog): **~4,500 chars = ~1,100 tokens** across all z-levels.
-Fully explored map: estimated **~2,000-3,000 tokens**.
 
 ---
 

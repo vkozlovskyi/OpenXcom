@@ -862,13 +862,11 @@ nlohmann::json AIBridge::serializeVisibleEnemy(BattleUnit *unit, Language *lang)
 }
 
 /**
- * Serializes a z-level as a 2x2-per-tile ASCII map string.
- * Each game tile maps to a 2-char wide by 2-char tall block:
- *   [NW corner][north edge]
- *   [west edge][floor]
+ * Serializes a z-level as a 1x1-per-tile ASCII map with coordinate axes.
+ * Only the bounding box of discovered tiles is rendered. No walls — just floor content.
+ * X-axis header row, Y-axis labels on each row.
  *
  * Characters: a-z building/terrain type (see map_legend), # impassable, space undiscovered/void,
- * | west wall, - north wall, + corner, \ door, ! = UFO hull, : ; fence,
  * / stairs, ^ gravlift, 1-9/A-E player units (by index), X enemies, ~ smoke, * fire
  *
  * @param z The z-level to render.
@@ -878,8 +876,6 @@ std::string AIBridge::serializeAsciiMap(int z, const std::map<int, char> &dataSe
 {
 	int sizeX = _save->getMapSizeX();
 	int sizeY = _save->getMapSizeY();
-	int gridW = sizeX * 2;
-	int gridH = sizeY * 2;
 
 	// Build set of visible enemy IDs (only show enemies the player can actually see)
 	std::set<int> visibleEnemyIds;
@@ -909,67 +905,35 @@ std::string AIBridge::serializeAsciiMap(int z, const std::map<int, char> &dataSe
 		unitIdx++;
 	}
 
-	// Initialize grid with spaces (undiscovered)
-	std::vector<char> grid(gridW * gridH, ' ');
-
+	// Find bounding box of discovered tiles on this z-level
+	int minX = sizeX, maxX = -1, minY = sizeY, maxY = -1;
 	for (int y = 0; y < sizeY; y++)
-	{
 		for (int x = 0; x < sizeX; x++)
+		{
+			Tile *tile = _save->getTile(Position(x, y, z));
+			if (tile && tile->isDiscovered(2) && !tile->isVoid())
+			{
+				if (x < minX) minX = x;
+				if (x > maxX) maxX = x;
+				if (y < minY) minY = y;
+				if (y > maxY) maxY = y;
+			}
+		}
+	if (maxX < 0) return ""; // no discovered tiles
+
+	int w = maxX - minX + 1;
+	int h = maxY - minY + 1;
+
+	// Build 1x1 grid (one char per tile, space = undiscovered)
+	std::vector<char> grid(w * h, ' ');
+
+	for (int y = minY; y <= maxY; y++)
+	{
+		for (int x = minX; x <= maxX; x++)
 		{
 			Tile *tile = _save->getTile(Position(x, y, z));
 			if (!tile || !tile->isDiscovered(2) || tile->isVoid()) continue;
 
-			int gx = x * 2;
-			int gy = y * 2;
-
-			// NW corner (top-left of 2x2 block) — always '+'
-			grid[gy * gridW + gx] = '+';
-
-			// North edge (top-right of 2x2 block)
-			MapData *northWall = tile->getMapData(O_NORTHWALL);
-			if (northWall)
-			{
-				if (northWall->isDoor() || northWall->isUFODoor())
-					grid[gy * gridW + gx + 1] = '\\';
-				else
-				{
-					int armor = northWall->getArmor();
-					if (armor >= 80)
-						grid[gy * gridW + gx + 1] = '='; // UFO hull
-					else if (armor <= 20)
-						grid[gy * gridW + gx + 1] = ';'; // fence/light
-					else
-						grid[gy * gridW + gx + 1] = '-'; // regular wall
-				}
-			}
-			else
-			{
-				grid[gy * gridW + gx + 1] = ' ';
-			}
-
-			// West edge (bottom-left of 2x2 block)
-			MapData *westWall = tile->getMapData(O_WESTWALL);
-			if (westWall)
-			{
-				if (westWall->isDoor() || westWall->isUFODoor())
-					grid[(gy + 1) * gridW + gx] = '\\';
-				else
-				{
-					int armor = westWall->getArmor();
-					if (armor >= 80)
-						grid[(gy + 1) * gridW + gx] = '!'; // UFO hull
-					else if (armor <= 20)
-						grid[(gy + 1) * gridW + gx] = ':'; // fence/light
-					else
-						grid[(gy + 1) * gridW + gx] = '|'; // regular wall
-				}
-			}
-			else
-			{
-				grid[(gy + 1) * gridW + gx] = ' ';
-			}
-
-			// Floor (bottom-right of 2x2 block) — the main content cell
 			// Determine zone character from MapDataSet (building type)
 			char zoneChar = '.';
 			int zonePriority = 0; // 0=default, 1=named, 2=craft, 3=UFO
@@ -1036,21 +1000,44 @@ std::string AIBridge::serializeAsciiMap(int z, const std::map<int, char> &dataSe
 				}
 			}
 
-			grid[(gy + 1) * gridW + gx + 1] = floorChar;
+			grid[(y - minY) * w + (x - minX)] = floorChar;
 		}
 	}
 
-	// Build string with newlines, trimming trailing spaces per row
+	// Format output with coordinate axes
+	// Column width based on largest X coordinate
+	int xDigits = (maxX >= 100) ? 3 : (maxX >= 10) ? 2 : 1;
+	int colWidth = xDigits + 1; // digits + 1 space separator
+	int yDigits = (maxY >= 100) ? 3 : (maxY >= 10) ? 2 : 1;
+	int yLabelWidth = yDigits + 1; // digits + ":"
+
 	std::string result;
-	result.reserve(gridH * (gridW + 1));
-	for (int gy = 0; gy < gridH; gy++)
+	result.reserve((h + 1) * (yLabelWidth + 1 + w * colWidth + 1));
+
+	// X axis header row
+	result.append(yLabelWidth + 1, ' '); // padding to align with data columns
+	for (int x = minX; x <= maxX; x++)
 	{
-		int end = gridW;
-		while (end > 0 && grid[gy * gridW + end - 1] == ' ')
-			end--;
-		if (end > 0)
+		char buf[8];
+		snprintf(buf, sizeof(buf), "%*d", colWidth, x);
+		result += buf;
+	}
+	result += '\n';
+
+	// Data rows with Y labels
+	for (int y = minY; y <= maxY; y++)
+	{
+		char buf[8];
+		snprintf(buf, sizeof(buf), "%*d:", yDigits, y);
+		result += buf;
+
+		for (int x = 0; x < w; x++)
 		{
-			result.append(&grid[gy * gridW], end);
+			char c = grid[(y - minY) * w + x];
+			// Right-justify char within column width
+			for (int p = 0; p < colWidth - 1; p++)
+				result += ' ';
+			result += c;
 		}
 		result += '\n';
 	}
