@@ -26,6 +26,7 @@ Sent automatically at the start of each player turn. Contains full game state.
   "visible_enemies": [...], // enemies visible to any player unit
   "ascii_map": {"0": "...", "1": "..."},  // ASCII map per z-level
   "map_legend": {"a": "CULTIVAT", "u": "UFO", "s": "craft", "/": "stairs", "^": "gravlift"},
+  "doors": [{"pos": [47, 39, 0], "side": "north", "ufo_door": true}, ...],
   "ufo_bounds": {"x_min":10, "y_min":20, "z_min":0, "x_max":15, "y_max":25, "z_max":1},
   "craft_bounds": {"x_min":12, "y_min":28, "z_min":0, "x_max":16, "y_max":36, "z_max":1}
 }
@@ -446,6 +447,21 @@ X-axis coordinates in header row, Y-axis coordinates as row labels. Column width
 | `*`  | Fire |
 | `1-9`, `A-E` | Player unit (by index) |
 | `X`  | Visible enemy |
+
+## Doors
+
+Included in `turn_start`, `game_state`, and map updates (after explosions/walks). Lists all doors on discovered tiles.
+
+```json
+"doors": [
+  {"pos": [47, 39, 0], "side": "west", "ufo_door": true},
+  {"pos": [34, 15, 1], "side": "north", "ufo_door": false}
+]
+```
+
+- `side`: which wall the door is on (`"north"` or `"west"`)
+- `ufo_door`: true for UFO power doors (open vertically), false for regular hinged doors
+- Destroyed doors disappear from the list (map refresh after explosions)
 
 ---
 
