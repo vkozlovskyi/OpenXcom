@@ -103,11 +103,13 @@ private:
 	nlohmann::json serializeItem(BattleItem *item, BattleUnit *owner) const;
 	/// Serializes a visible enemy unit (limited info).
 	nlohmann::json serializeVisibleEnemy(BattleUnit *unit, Language *lang) const;
-	/// Serializes a z-level as a 2x2-per-tile ASCII map string.
+	/// Serializes a z-level as a 1x1-per-tile ASCII map with coordinate axes.
 	std::string serializeAsciiMap(int z, const std::map<int, char> &dataSetChars) const;
+	/// Scans discovered tiles for doors and returns JSON array.
+	nlohmann::json serializeDoors() const;
 	/// Counts total discovered tiles on the map.
 	int countDiscoveredTiles() const;
-	/// Attaches ascii_map + map_legend to a JSON message.
+	/// Attaches ascii_map + map_legend + doors to a JSON message.
 	void attachMap(nlohmann::json &msg) const;
 
 public:

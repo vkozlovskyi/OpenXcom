@@ -607,6 +607,7 @@ nlohmann::json AIBridge::serializeGameState(int turn, Language *lang) const
 	}
 	msg["ascii_map"] = asciiMap;
 	msg["map_legend"] = mapLegend;
+	msg["doors"] = serializeDoors();
 
 	int ux0 = sizeX, uy0 = sizeY, uz0 = sizeZ, ux1 = -1, uy1 = -1, uz1 = -1;
 	int cx0 = sizeX, cy0 = sizeY, cz0 = sizeZ, cx1 = -1, cy1 = -1, cz1 = -1;
@@ -1045,6 +1046,46 @@ std::string AIBridge::serializeAsciiMap(int z, const std::map<int, char> &dataSe
 }
 
 /**
+ * Scans all discovered tiles for doors (regular and UFO doors) on north/west walls.
+ * Returns a JSON array of door positions with side information.
+ */
+nlohmann::json AIBridge::serializeDoors() const
+{
+	nlohmann::json doors = nlohmann::json::array();
+	int sizeX = _save->getMapSizeX();
+	int sizeY = _save->getMapSizeY();
+	int sizeZ = _save->getMapSizeZ();
+	for (int z = 0; z < sizeZ; z++)
+		for (int y = 0; y < sizeY; y++)
+			for (int x = 0; x < sizeX; x++)
+			{
+				Tile *tile = _save->getTile(Position(x, y, z));
+				if (!tile || !tile->isDiscovered(2)) continue;
+
+				MapData *northWall = tile->getMapData(O_NORTHWALL);
+				if (northWall && (northWall->isDoor() || northWall->isUFODoor()))
+				{
+					nlohmann::json door;
+					door["pos"] = {x, y, z};
+					door["side"] = "north";
+					door["ufo_door"] = northWall->isUFODoor();
+					doors.push_back(door);
+				}
+
+				MapData *westWall = tile->getMapData(O_WESTWALL);
+				if (westWall && (westWall->isDoor() || westWall->isUFODoor()))
+				{
+					nlohmann::json door;
+					door["pos"] = {x, y, z};
+					door["side"] = "west";
+					door["ufo_door"] = westWall->isUFODoor();
+					doors.push_back(door);
+				}
+			}
+	return doors;
+}
+
+/**
  * Counts total discovered tiles on the map (for detecting new discoveries after walk).
  */
 int AIBridge::countDiscoveredTiles() const
@@ -1120,6 +1161,7 @@ void AIBridge::attachMap(nlohmann::json &msg) const
 	}
 	msg["ascii_map"] = asciiMap;
 	msg["map_legend"] = mapLegend;
+	msg["doors"] = serializeDoors();
 }
 
 // --- Event Queue (Phase 4) ---

@@ -69,6 +69,15 @@ def print_unit(u):
                 tu_info = " " + " ".join(parts)
             print(f"      [{hand}] {item['type']}{ammo}{tu_info}")
 
+def print_doors(m):
+    doors = m.get('doors', [])
+    if not doors:
+        return
+    print(f"  DOORS ({len(doors)}):")
+    for d in doors:
+        ufo = " [UFO]" if d.get('ufo_door') else ""
+        print(f"    [{d['pos'][0]:2d},{d['pos'][1]:2d},{d['pos'][2]}] {d['side']}{ufo}")
+
 def print_map(m):
     amap = m.get('ascii_map', {})
     if not amap:
@@ -76,6 +85,7 @@ def print_map(m):
     legend = m.get('map_legend', {})
     if legend:
         print(f"  MAP LEGEND: {' '.join(k+'='+v for k,v in legend.items())}")
+    print_doors(m)
     for z in sorted(amap.keys(), key=lambda x: int(x)):
         lines = amap[z].split('\n')
         nonblank = [l for l in lines if l.strip()]
