@@ -348,7 +348,10 @@ void BattlescapeGame::executeAICommand(const AICommand &cmd)
 			return;
 		}
 
-		// Set target as the single waypoint — engine auto-routes
+		// Push target waypoint twice so waypoints.size() > 1.
+		// This ensures extendLine=false in Projectile::calculateTrajectory,
+		// making the bomb navigate TO the target instead of extending through it.
+		action.waypoints.push_back(cmd.target);
 		action.waypoints.push_back(cmd.target);
 
 		_save->setSelectedUnit(unit);
