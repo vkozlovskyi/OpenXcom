@@ -498,9 +498,19 @@ void BattlescapeGame::executeAICommand(const AICommand &cmd)
 		{
 			BattleUnit *enemy = *i;
 			if (enemy->getFaction() != FACTION_HOSTILE || enemy->isOut()) continue;
-			// Only consider enemies visible to player
-			if (std::find(unit->getVisibleUnits()->begin(), unit->getVisibleUnits()->end(), enemy)
-				== unit->getVisibleUnits()->end()) continue;
+			// Only consider enemies visible to any player unit (not just the acting unit)
+			bool enemyVisible = false;
+			for (std::vector<BattleUnit*>::iterator j = _save->getUnits()->begin(); j != _save->getUnits()->end(); ++j)
+			{
+				if ((*j)->getFaction() == FACTION_PLAYER && !(*j)->isOut()
+					&& std::find((*j)->getVisibleUnits()->begin(), (*j)->getVisibleUnits()->end(), enemy)
+						!= (*j)->getVisibleUnits()->end())
+				{
+					enemyVisible = true;
+					break;
+				}
+			}
+			if (!enemyVisible) continue;
 
 			Position enemyPos = enemy->getPosition();
 
@@ -653,7 +663,7 @@ void BattlescapeGame::executeAICommand(const AICommand &cmd)
 			msg["action"] = "get_path_cost";
 			msg["unit_id"] = cmd.unitId;
 			msg["target"] = {cmd.target.x, cmd.target.y, cmd.target.z};
-			msg["tu_cost"] = pf->getTotalTUCost();
+			msg["tu_cost"] = cumulativeTU;
 			msg["path"] = waypoints;
 			msg["success"] = true;
 			msg["events"] = _aiBridge->flushEvents();
