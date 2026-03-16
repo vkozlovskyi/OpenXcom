@@ -2234,8 +2234,8 @@ int TileEngine::unitOpensDoor(BattleUnit *unit, bool rClick, int dir)
 	}
 
 	// AI Bridge event: door opened + mark map dirty
-	// Only for player units — enemy doors open/close every step and spam hundreds of events
-	if (door >= 0 && tile && unit->getFaction() == FACTION_PLAYER)
+	// Only for player units, and only on actual open (0=normal, 1=UFO start), not animation frames (3)
+	if ((door == 0 || door == 1) && tile && unit->getFaction() == FACTION_PLAYER)
 	{
 		AIBridge *bridge = _save->getBattleGame() ? _save->getBattleGame()->getAIBridge() : 0;
 		if (bridge)
@@ -2250,7 +2250,7 @@ int TileEngine::unitOpensDoor(BattleUnit *unit, bool rClick, int dir)
 			bridge->setMapDirty();
 		}
 	}
-	else if (door >= 0 && tile)
+	else if ((door == 0 || door == 1) && tile)
 	{
 		// Still mark map dirty for enemy doors (affects FOV/visibility)
 		AIBridge *bridge = _save->getBattleGame() ? _save->getBattleGame()->getAIBridge() : 0;
