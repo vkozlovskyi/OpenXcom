@@ -34,6 +34,7 @@
 #include "../Mod/Armor.h"
 #include "InfoboxOKState.h"
 #include "InfoboxState.h"
+#include "AIBridge.h"
 #include "../Savegame/Node.h"
 
 namespace OpenXcom
@@ -183,12 +184,16 @@ void UnitDieBState::think()
 		_parent->popState();
 		if (_unit->getOriginalFaction() == FACTION_PLAYER)
 		{
+			// Skip blocking popups when AI bridge is active — events already notify the client
+			AIBridge *bridge = _parent->getAIBridge();
+			bool skipPopup = bridge && bridge->wasUsed();
 			Game *game = _parent->getSave()->getBattleState()->getGame();
 			if (_unit->getStatus() == STATUS_DEAD)
 			{
 				if (_damageType == DT_NONE && _unit->getSpawnUnit().empty())
 				{
-					game->pushState(new InfoboxOKState(game->getLanguage()->getString("STR_HAS_DIED_FROM_A_FATAL_WOUND", _unit->getGender()).arg(_unit->getName(game->getLanguage()))));
+					if (!skipPopup)
+						game->pushState(new InfoboxOKState(game->getLanguage()->getString("STR_HAS_DIED_FROM_A_FATAL_WOUND", _unit->getGender()).arg(_unit->getName(game->getLanguage()))));
 				}
 				else if (Options::battleNotifyDeath && _unit->getGeoscapeSoldier() != 0)
 				{
@@ -197,7 +202,8 @@ void UnitDieBState::think()
 			}
 			else
 			{
-				game->pushState(new InfoboxOKState(game->getLanguage()->getString("STR_HAS_BECOME_UNCONSCIOUS", _unit->getGender()).arg(_unit->getName(game->getLanguage()))));
+				if (!skipPopup)
+					game->pushState(new InfoboxOKState(game->getLanguage()->getString("STR_HAS_BECOME_UNCONSCIOUS", _unit->getGender()).arg(_unit->getName(game->getLanguage()))));
 			}
 		}
 		// if all units from either faction are killed - auto-end the mission.
