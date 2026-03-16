@@ -974,7 +974,7 @@ BattlescapeState *SavedBattleGame::getBattleState()
  */
 BattlescapeGame *SavedBattleGame::getBattleGame()
 {
-	return _battleState->getBattleGame();
+	return _battleState ? _battleState->getBattleGame() : 0;
 }
 
 /**
