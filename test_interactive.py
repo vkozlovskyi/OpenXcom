@@ -169,6 +169,7 @@ for m in msgs:
             print_unit(u)
         print_enemies(m)
         print_events(m)
+        print_doors(m)
         print_map(m)
     elif t == 'turn_start':
         print(f"[turn {m['turn']} started]")

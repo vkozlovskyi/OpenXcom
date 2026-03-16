@@ -1060,26 +1060,29 @@ nlohmann::json AIBridge::serializeDoors() const
 			for (int x = 0; x < sizeX; x++)
 			{
 				Tile *tile = _save->getTile(Position(x, y, z));
-				if (!tile || !tile->isDiscovered(2)) continue;
+				if (!tile) continue;
 
-				MapData *northWall = tile->getMapData(O_NORTHWALL);
-				if (northWall && (northWall->isDoor() || northWall->isUFODoor()))
+				// Check all 4 tile parts for doors — UFO doors can be on any part
+				static const struct { TilePart part; const char *side; int dx; int dy; } checks[] = {
+					{O_FLOOR, "floor", 0, 0}, {O_WESTWALL, "west", -1, 0}, {O_NORTHWALL, "north", 0, -1}, {O_OBJECT, "object", 0, 0}
+				};
+				for (int i = 0; i < 4; i++)
 				{
-					nlohmann::json door;
-					door["pos"] = {x, y, z};
-					door["side"] = "north";
-					door["ufo_door"] = northWall->isUFODoor();
-					doors.push_back(door);
-				}
+					MapData *md = tile->getMapData(checks[i].part);
+					if (md && (md->isDoor() || md->isUFODoor()))
+					{
+						// Show door if either side of the wall is discovered
+						bool thisDiscovered = tile->isDiscovered(2);
+						Tile *adj = _save->getTile(Position(x + checks[i].dx, y + checks[i].dy, z));
+						bool adjDiscovered = adj && adj->isDiscovered(2);
+						if (!thisDiscovered && !adjDiscovered) continue;
 
-				MapData *westWall = tile->getMapData(O_WESTWALL);
-				if (westWall && (westWall->isDoor() || westWall->isUFODoor()))
-				{
-					nlohmann::json door;
-					door["pos"] = {x, y, z};
-					door["side"] = "west";
-					door["ufo_door"] = westWall->isUFODoor();
-					doors.push_back(door);
+						nlohmann::json door;
+						door["pos"] = {x, y, z};
+						door["side"] = checks[i].side;
+						door["ufo_door"] = md->isUFODoor();
+						doors.push_back(door);
+					}
 				}
 			}
 	return doors;
