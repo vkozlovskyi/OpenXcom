@@ -1603,6 +1603,19 @@ void BattlescapeGame::popState()
 	{
 		_parentState->warning(action.result);
 		actionFailed = true;
+		// AI bridge: notify failure so the client doesn't get a false success
+		if (_aiBridge && _aiBridge->isActionExecuting())
+		{
+			// Convert localization key to AI-friendly error string
+			std::string error = "action_failed";
+			if (action.result == "STR_NO_LINE_OF_FIRE") error = "no_line_of_fire";
+			else if (action.result == "STR_NOT_ENOUGH_TIME_UNITS") error = "not_enough_tu";
+			else if (action.result == "STR_NO_AMMUNITION_LOADED") error = "no_ammo";
+			else if (action.result == "STR_NO_ROUNDS_LEFT") error = "no_ammo";
+			else if (action.result == "STR_OUT_OF_RANGE") error = "out_of_range";
+			else if (action.result == "STR_UNABLE_TO_THROW_HERE") error = "unable_to_throw";
+			_aiBridge->notifyCurrentActionComplete(false, error);
+		}
 	}
 	_deleted.push_back(_states.front());
 	_states.pop_front();
