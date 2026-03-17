@@ -458,13 +458,15 @@ Included in `turn_start`, `game_state`, and map updates (after explosions/walks)
 
 ```json
 "doors": [
-  {"pos": [47, 39, 0], "side": "west", "ufo_door": true},
+  {"pos": [17, 9, 0], "side": "west", "ufo_door": true, "type": "entry"},
+  {"pos": [9, 3, 0], "side": "west", "ufo_door": true, "type": "internal"},
   {"pos": [34, 15, 1], "side": "north", "ufo_door": false}
 ]
 ```
 
 - `side`: which wall the door is on (`"north"` or `"west"`)
 - `ufo_door`: true for UFO power doors (open vertically), false for regular hinged doors
+- `type` (UFO wall doors only): `"entry"` = hull entrance (one side UFO, other side terrain), `"internal"` = between UFO compartments. Use `"entry"` doors to find the UFO entrance — check surrounding tiles on the ASCII map to determine approach direction (`u` = inside, `a`/other = outside).
 - Destroyed doors disappear from the list (map refresh after explosions)
 
 ---
