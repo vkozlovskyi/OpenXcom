@@ -30,6 +30,7 @@
 #include "InventoryState.h"
 #include "Pathfinding.h"
 #include "BattlescapeGame.h"
+#include "AIBridge.h"
 #include "WarningMessage.h"
 #include "DebriefingState.h"
 #include "MiniMapState.h"
@@ -2037,6 +2038,19 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 	if (ruleDeploy)
 	{
 		nextStage = ruleDeploy->getNextStage();
+	}
+
+	// Notify AI bridge of mission end before battlescape is torn down
+	if (_battleGame->getAIBridge() && _battleGame->getAIBridge()->isConnected())
+	{
+		std::string result;
+		if (abort)
+			result = "abort";
+		else if (inExitArea == 0)
+			result = "defeat";
+		else
+			result = "victory";
+		_battleGame->getAIBridge()->notifyBattleEnd(result);
 	}
 
 	if (!nextStage.empty() && inExitArea)

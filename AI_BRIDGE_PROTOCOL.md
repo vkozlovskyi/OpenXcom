@@ -32,10 +32,23 @@ Sent automatically at the start of each player turn. Contains full game state.
 }
 ```
 
-### battle_end
+### mission_end
+Sent when the battle concludes (before TCP connection closes). Contains the mission outcome and unit statistics.
+
+```json
+{
+  "type": "mission_end",
+  "result": "victory",
+  "turns": 9,
+  "soldiers": {"alive": 3, "dead": 0, "stunned": 1},
+  "enemies": {"killed": 5, "stunned": 1, "total": 6},
+  "civilians": {"alive": 2, "dead": 1}
+}
 ```
-{"type": "battle_end"}
-```
+
+- `result`: `"victory"`, `"defeat"`, or `"abort"`
+- `civilians` field only present if civilians exist on the map
+- Connection closes shortly after this message
 
 ---
 

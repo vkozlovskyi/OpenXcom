@@ -475,12 +475,61 @@ void AIBridge::notifyTurnStart(int turn, Language *lang)
 }
 
 /**
- * Notifies that the battle has ended.
+ * Notifies that the battle has ended with result summary.
+ * @param result "victory", "defeat", or "abort"
  */
-void AIBridge::notifyBattleEnd()
+void AIBridge::notifyBattleEnd(const std::string &result)
 {
+	if (!_enabled || _clientFd < 0) return;
+
 	nlohmann::json msg;
-	msg["type"] = "battle_end";
+	msg["type"] = "mission_end";
+	msg["result"] = result;
+	msg["turns"] = _save->getTurn();
+
+	// Count unit statistics
+	int soldiersAlive = 0, soldiersDead = 0, soldiersStunned = 0;
+	int enemiesKilled = 0, enemiesStunned = 0, enemiesTotal = 0;
+	int civiliansAlive = 0, civiliansDead = 0;
+
+	for (std::vector<BattleUnit*>::iterator i = _save->getUnits()->begin(); i != _save->getUnits()->end(); ++i)
+	{
+		BattleUnit *unit = *i;
+		if (unit->getStatus() == STATUS_IGNORE_ME) continue;
+
+		if (unit->getFaction() == FACTION_PLAYER)
+		{
+			if (unit->getStatus() == STATUS_DEAD)
+				soldiersDead++;
+			else if (unit->getStatus() == STATUS_UNCONSCIOUS)
+				soldiersStunned++;
+			else
+				soldiersAlive++;
+		}
+		else if (unit->getFaction() == FACTION_HOSTILE)
+		{
+			enemiesTotal++;
+			if (unit->getStatus() == STATUS_DEAD)
+				enemiesKilled++;
+			else if (unit->getStatus() == STATUS_UNCONSCIOUS)
+				enemiesStunned++;
+		}
+		else if (unit->getFaction() == FACTION_NEUTRAL)
+		{
+			if (unit->getStatus() == STATUS_DEAD)
+				civiliansDead++;
+			else
+				civiliansAlive++;
+		}
+	}
+
+	msg["soldiers"] = {{"alive", soldiersAlive}, {"dead", soldiersDead}, {"stunned", soldiersStunned}};
+	msg["enemies"] = {{"killed", enemiesKilled}, {"stunned", enemiesStunned}, {"total", enemiesTotal}};
+	if (civiliansAlive > 0 || civiliansDead > 0)
+	{
+		msg["civilians"] = {{"alive", civiliansAlive}, {"dead", civiliansDead}};
+	}
+
 	sendMessage(msg);
 }
 

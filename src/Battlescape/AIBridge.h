@@ -133,8 +133,8 @@ public:
 	void notifyBattleStart();
 	/// Notifies that the player's turn has started (sends full game state).
 	void notifyTurnStart(int turn, Language *lang);
-	/// Notifies that the battle has ended.
-	void notifyBattleEnd();
+	/// Notifies that the battle has ended with result summary.
+	void notifyBattleEnd(const std::string &result);
 
 	/// Returns true if a client is connected.
 	bool isConnected() const;

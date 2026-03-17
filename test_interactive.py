@@ -33,7 +33,7 @@ def recv_messages(sock, timeout=10.0):
             line, buf = buf.split(b'\n', 1)
             msgs.append(json.loads(line))
         # If we got an actionable response, wait a tiny bit more for stragglers then stop
-        if msgs and msgs[-1].get('type') in ('action_complete', 'action_error', 'game_state', 'reachable'):
+        if msgs and msgs[-1].get('type') in ('action_complete', 'action_error', 'game_state', 'reachable', 'mission_end'):
             # Quick drain
             ready2, _, _ = select.select([sock], [], [], 0.2)
             if ready2:
@@ -172,6 +172,17 @@ for m in msgs:
         print_events(m)
         print_doors(m)
         print_map(m)
+    elif t == 'mission_end':
+        result = m.get('result', '?').upper()
+        turns = m.get('turns', '?')
+        sol = m.get('soldiers', {})
+        ene = m.get('enemies', {})
+        print(f"\n=== MISSION {result} (turn {turns}) ===")
+        print(f"  Soldiers: {sol.get('alive',0)} alive, {sol.get('dead',0)} dead, {sol.get('stunned',0)} stunned")
+        print(f"  Enemies:  {ene.get('killed',0)} killed, {ene.get('stunned',0)} stunned (of {ene.get('total',0)})")
+        civ = m.get('civilians')
+        if civ:
+            print(f"  Civilians: {civ.get('alive',0)} alive, {civ.get('dead',0)} dead")
     elif t == 'turn_start':
         print(f"[turn {m['turn']} started]")
         print_events(m)
