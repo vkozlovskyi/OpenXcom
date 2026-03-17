@@ -394,13 +394,21 @@ void AIBridge::processMessage(const std::string &line)
 		return;
 	}
 
-	// Validate target is present for actions that need it
-	if ((cmd.action == "walk" || cmd.action == "shoot" || cmd.action == "throw" ||
+	// Validate target is present and is [x, y, z] array for actions that need it
+	if (cmd.action == "walk" || cmd.action == "shoot" || cmd.action == "throw" ||
 		cmd.action == "get_path_cost" || cmd.action == "get_blast_check" ||
-		cmd.action == "launch") && !msg.contains("target"))
+		cmd.action == "launch")
 	{
-		sendError(cmd.action, cmd.unitId, "missing_target");
-		return;
+		if (!msg.contains("target"))
+		{
+			sendError(cmd.action, cmd.unitId, "missing_target");
+			return;
+		}
+		if (!msg["target"].is_array() || msg["target"].size() != 3)
+		{
+			sendError(cmd.action, cmd.unitId, "invalid_target_format");
+			return;
+		}
 	}
 
 	_pendingCommand = cmd;
