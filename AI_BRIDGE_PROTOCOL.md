@@ -153,12 +153,16 @@ Success response:
   "unit_id": 3,
   "target": [8, 17, 0],
   "tu_cost": 24,
+  "energy_cost": 12,
+  "energy_sufficient": true,
   "path": [[9,18,0,4],[9,17,0,8],[8,17,0,12]],
   "success": true
 }
 ```
 
 `path`: array of waypoints `[x, y, z, cumulative_tu]`. Each entry is a tile along the route with the total TU cost to reach it. Use this to pick intermediate destinations (e.g. walk halfway when TU is limited).
+
+`energy_cost`: total stamina cost for the path (each step costs `step_tu / 2` energy; gravlift steps cost 0). If `energy_sufficient` is `false`, the unit will stop mid-walk when energy runs out, even if TU remain.
 
 Errors: `no_path`
 

@@ -648,12 +648,15 @@ void BattlescapeGame::executeAICommand(const AICommand &cmd)
 			const std::vector<int> &path = pf->getPath();
 			Position pos = unit->getPosition();
 			int cumulativeTU = 0;
+			int cumulativeEnergy = 0;
 			nlohmann::json waypoints = nlohmann::json::array();
 			for (int i = path.size() - 1; i >= 0; i--)
 			{
 				Position endPos;
 				int stepCost = pf->getTUCost(pos, path[i], &endPos, unit, 0, false);
 				cumulativeTU += stepCost;
+				int stepEnergy = (path[i] >= Pathfinding::DIR_UP) ? 0 : stepCost / 2;
+				cumulativeEnergy += stepEnergy;
 				pos = endPos;
 				waypoints.push_back({pos.x, pos.y, pos.z, cumulativeTU});
 			}
@@ -664,6 +667,8 @@ void BattlescapeGame::executeAICommand(const AICommand &cmd)
 			msg["unit_id"] = cmd.unitId;
 			msg["target"] = {cmd.target.x, cmd.target.y, cmd.target.z};
 			msg["tu_cost"] = cumulativeTU;
+			msg["energy_cost"] = cumulativeEnergy;
+			msg["energy_sufficient"] = (cumulativeEnergy <= unit->getEnergy());
 			msg["path"] = waypoints;
 			msg["success"] = true;
 			msg["events"] = _aiBridge->flushEvents();
