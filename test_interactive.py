@@ -76,7 +76,8 @@ def print_doors(m):
     print(f"  DOORS ({len(doors)}):")
     for d in doors:
         ufo = " [UFO]" if d.get('ufo_door') else ""
-        print(f"    [{d['pos'][0]:2d},{d['pos'][1]:2d},{d['pos'][2]}] {d['side']}{ufo}")
+        dtype = f" {d['type']}" if 'type' in d else ""
+        print(f"    [{d['pos'][0]:2d},{d['pos'][1]:2d},{d['pos'][2]}] {d['side']}{ufo}{dtype}")
 
 def print_map(m):
     amap = m.get('ascii_map', {})

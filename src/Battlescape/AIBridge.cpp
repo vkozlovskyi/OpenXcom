@@ -1063,6 +1063,20 @@ nlohmann::json AIBridge::serializeDoors() const
 	int sizeX = _save->getMapSizeX();
 	int sizeY = _save->getMapSizeY();
 	int sizeZ = _save->getMapSizeZ();
+
+	// Build set of UFO dataset indices for entry/internal classification
+	std::vector<MapDataSet*> *dataSets = _save->getMapDataSets();
+	std::set<int> ufoDataSets;
+	for (size_t i = 0; i < dataSets->size(); i++)
+	{
+		std::string name = dataSets->at(i)->getName();
+		if (name.compare(0, 3, "UFO") == 0 || name.compare(0, 2, "U_") == 0
+			|| name.compare(0, 4, "UEXT") == 0 || name.compare(0, 4, "UINT") == 0)
+		{
+			ufoDataSets.insert(i);
+		}
+	}
+
 	for (int z = 0; z < sizeZ; z++)
 		for (int y = 0; y < sizeY; y++)
 			for (int x = 0; x < sizeX; x++)
@@ -1089,6 +1103,25 @@ nlohmann::json AIBridge::serializeDoors() const
 						door["pos"] = {x, y, z};
 						door["side"] = checks[i].side;
 						door["ufo_door"] = md->isUFODoor();
+
+						// Classify door type: entry (hull boundary) vs internal
+						if (md->isUFODoor() && (checks[i].dx != 0 || checks[i].dy != 0))
+						{
+							// Wall door — check floor datasets on both sides
+							int thisDataSetID, thisDataID;
+							tile->getMapData(&thisDataID, &thisDataSetID, O_FLOOR);
+							bool thisIsUfo = ufoDataSets.count(thisDataSetID) > 0;
+
+							bool adjIsUfo = false;
+							if (adj)
+							{
+								int adjDataSetID, adjDataID;
+								adj->getMapData(&adjDataID, &adjDataSetID, O_FLOOR);
+								adjIsUfo = ufoDataSets.count(adjDataSetID) > 0;
+							}
+							door["type"] = (thisIsUfo != adjIsUfo) ? "entry" : "internal";
+						}
+
 						doors.push_back(door);
 					}
 				}
