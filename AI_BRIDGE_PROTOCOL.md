@@ -561,6 +561,25 @@ The proxy accepts meta-commands via JSON with a `meta` field (sent over Unix soc
 | Events | `{"meta":"__events__"}` | `{"events":[...]}` — buffered pushes, clears after read |
 | Mission end | `{"meta":"__mission_end__"}` | Last `mission_end` message |
 
+### Batch queries
+
+Send a JSON array of **read-only** queries to execute them in a single call. Returns an array of responses (1:1 mapping). Only these actions are allowed in batch: `get_path_cost`, `get_fire_options`, `get_blast_check`, `get_reachable`, `get_state`.
+
+Actions that modify game state (`walk`, `shoot`, `turn`, etc.) are **rejected** — they must be sent individually so the AI can react to events between commands.
+
+```bash
+# Batch: check paths for 3 units + fire options for 2 units — one call
+python3 xcom_cmd.py '[
+  {"action":"get_path_cost","unit_id":1,"target":[8,17,0]},
+  {"action":"get_path_cost","unit_id":3,"target":[10,12,0]},
+  {"action":"get_path_cost","unit_id":5,"target":[6,14,0]},
+  {"action":"get_fire_options","unit_id":1},
+  {"action":"get_fire_options","unit_id":3}
+]'
+```
+
+Response: `[{resp1}, {resp2}, {resp3}, {resp4}, {resp5}]`
+
 ### Error responses
 
 | Error | Meaning |
@@ -569,6 +588,7 @@ The proxy accepts meta-commands via JSON with a `meta` field (sent over Unix soc
 | `{"error":"busy"}` | Another command is in progress |
 | `{"error":"timeout"}` | Command timed out (60s) |
 | `{"error":"no_turn_start"}` | No turn_start buffered yet |
+| `{"error":"batch[N]: '...' is not a read-only query..."}` | Non-query action in batch |
 
 ---
 

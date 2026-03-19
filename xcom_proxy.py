@@ -21,6 +21,9 @@ COMMAND_TIMEOUT = 60.0
 # Response types that indicate a command is complete
 TERMINAL_TYPES = frozenset(["action_complete", "action_error", "game_state", "reachable", "mission_end"])
 
+# Read-only queries that can be batched (no game state changes, no animations)
+QUERY_ACTIONS = frozenset(["get_path_cost", "get_fire_options", "get_blast_check", "get_reachable", "get_state"])
+
 log = logging.getLogger("xcom_proxy")
 
 
@@ -37,6 +40,7 @@ class XcomProxy:
         self.pending_command = False
         self.last_tcp_connect_attempt = 0.0
         self.running = True
+        self._captured_response = None
 
     def start(self):
         self._setup_logging()
@@ -289,6 +293,11 @@ class XcomProxy:
             self._send_unix({"error": f"bad_json: {e}"})
             return
 
+        # Batch query — JSON array of read-only commands
+        if isinstance(cmd, list):
+            self._execute_batch(cmd)
+            return
+
         # Meta-commands
         meta = cmd.get("meta")
         if meta:
@@ -335,6 +344,119 @@ class XcomProxy:
             if ready:
                 if self._tcp_recv():
                     self._process_tcp_buf()
+
+    def _execute_batch(self, commands):
+        """Execute a batch of read-only queries and return array of responses."""
+        if not isinstance(commands, list) or len(commands) == 0:
+            self._send_unix({"error": "batch_empty"})
+            return
+
+        # Validate: all commands must be read-only queries
+        for i, cmd in enumerate(commands):
+            if not isinstance(cmd, dict):
+                self._send_unix({"error": f"batch[{i}]: not an object"})
+                return
+            action = cmd.get("action", "")
+            if action not in QUERY_ACTIONS:
+                self._send_unix({"error": f"batch[{i}]: '{action}' is not a read-only query. "
+                                 f"Allowed: {', '.join(sorted(QUERY_ACTIONS))}"})
+                return
+
+        if not self.tcp_sock:
+            self._send_unix({"error": "tcp_disconnected"})
+            return
+
+        log.info("Batch query: %d commands", len(commands))
+        results = []
+        for i, cmd in enumerate(commands):
+            resp = self._forward_one(cmd)
+            if resp is None:
+                # TCP lost mid-batch — fill remaining with errors
+                results.append({"error": "tcp_disconnected"})
+                for _ in range(i + 1, len(commands)):
+                    results.append({"error": "tcp_disconnected"})
+                break
+            results.append(resp)
+
+        self._send_unix(results)
+
+    def _forward_one(self, cmd):
+        """Forward a single command to TCP, wait for response. Returns response dict or None on TCP loss."""
+        line = json.dumps(cmd, separators=(",", ":")).encode()
+        try:
+            self.tcp_sock.sendall(line + b"\n")
+        except (BrokenPipeError, ConnectionResetError, OSError) as e:
+            log.error("TCP send failed in batch: %s", e)
+            self._tcp_lost()
+            return None
+
+        # Wait for terminal response
+        deadline = time.time() + COMMAND_TIMEOUT
+        self.pending_command = True
+        captured = None
+
+        while self.pending_command and self.running:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                log.error("Batch command timeout: %s", cmd.get("action"))
+                self.pending_command = False
+                return {"error": "timeout"}
+
+            rlist = [self.tcp_sock] if self.tcp_sock else []
+            if not rlist:
+                return None
+
+            try:
+                ready, _, _ = select.select(rlist, [], [], min(remaining, 0.5))
+            except (ValueError, OSError):
+                return None
+
+            if ready:
+                if not self._tcp_recv():
+                    return None
+                # Process buffer but capture response instead of sending to unix
+                self._process_tcp_buf_capture()
+                if self._captured_response is not None:
+                    captured = self._captured_response
+                    self._captured_response = None
+                    self.pending_command = False
+
+        return captured
+
+    def _process_tcp_buf_capture(self):
+        """Like _process_tcp_buf but captures terminal response instead of sending to unix."""
+        while b"\n" in self.tcp_buf:
+            line, self.tcp_buf = self.tcp_buf.split(b"\n", 1)
+            if not line.strip():
+                continue
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError as e:
+                log.error("Bad JSON from TCP: %s", e)
+                continue
+            mtype = msg.get("type", "?")
+            log.debug("TCP msg (batch): type=%s", mtype)
+
+            if mtype == "connected":
+                log.info("AIBridge connected (version %s)", msg.get("version", "?"))
+                continue
+            if mtype == "turn_start":
+                self.last_turn_start = msg
+                self.last_mission_end = None
+                self.buffered_pushes.append(msg)
+                continue
+            if mtype == "mission_end":
+                self.last_mission_end = msg
+                self.buffered_pushes.append(msg)
+                if self.pending_command:
+                    self._captured_response = msg
+                    self.pending_command = False
+                continue
+            if mtype in TERMINAL_TYPES and self.pending_command:
+                self._captured_response = msg
+                self.pending_command = False
+                continue
+            log.warning("Unhandled TCP message type (batch): %s", mtype)
 
     def _handle_meta(self, meta):
         """Handle proxy meta-commands."""

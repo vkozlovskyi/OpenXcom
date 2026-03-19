@@ -9,6 +9,11 @@ Usage:
     python3 xcom_cmd.py --status
     python3 xcom_cmd.py --turn-state
     python3 xcom_cmd.py --events
+
+Batch queries (read-only, array syntax):
+    python3 xcom_cmd.py '[{"action":"get_path_cost","unit_id":1,"target":[8,17,0]},
+                          {"action":"get_fire_options","unit_id":1},
+                          {"action":"get_path_cost","unit_id":3,"target":[10,12,0]}]'
 """
 
 import socket, json, sys, os
@@ -249,6 +254,17 @@ def main():
 
     sock = connect()
     resp = send_recv(sock, msg)
+
+    # Batch response — array of results
+    if isinstance(resp, list):
+        rc = 0
+        for i, r in enumerate(resp):
+            print(f"--- [{i}] ---")
+            ret = display(r)
+            if ret != 0:
+                rc = ret
+        sys.exit(rc)
+
     rc = display(resp)
     sys.exit(rc)
 
