@@ -186,6 +186,17 @@ def display(m):
             print(f"  Civilians: {civ.get('alive',0)} alive, {civ.get('dead',0)} dead")
         return 0
 
+    # Stats response
+    if "total_cmds" in m:
+        print(f"Turn {m['current_turn']}: {m['turn_cmds']} cmds, ~{m['turn_sent_tokens']:,} tokens sent, ~{m['turn_recv_tokens']:,} tokens recv")
+        print(f"Total: {m['total_cmds']} cmds, ~{m['total_sent_tokens']:,} tokens sent, ~{m['total_recv_tokens']:,} tokens recv")
+        history = m.get("turn_history", [])
+        if history:
+            print(f"\nPer-turn history:")
+            for h in history:
+                print(f"  Turn {h['turn']:2d}: {h['cmds']:3d} cmds, ~{h['sent_tokens']:,} sent, ~{h['recv_tokens']:,} recv")
+        return 0
+
     # Status response
     if "status" in m:
         print(f"TCP: {m['status']}")
@@ -243,6 +254,8 @@ def main():
         msg = json.dumps({"meta": "__turn_state__"}).encode()
     elif arg == "--events":
         msg = json.dumps({"meta": "__events__"}).encode()
+    elif arg == "--stats":
+        msg = json.dumps({"meta": "__stats__"}).encode()
     else:
         # Validate JSON
         try:

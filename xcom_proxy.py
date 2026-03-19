@@ -41,6 +41,15 @@ class XcomProxy:
         self.last_tcp_connect_attempt = 0.0
         self.running = True
         self._captured_response = None
+        # Token stats (~4 chars ≈ 1 token for JSON)
+        self._current_turn = 0
+        self._turn_cmds = 0
+        self._turn_sent_bytes = 0
+        self._turn_recv_bytes = 0
+        self._total_cmds = 0
+        self._total_sent_bytes = 0
+        self._total_recv_bytes = 0
+        self._turn_history = []  # last N turns
 
     def start(self):
         self._setup_logging()
@@ -175,6 +184,7 @@ class XcomProxy:
         if mtype == "turn_start":
             self.last_turn_start = msg
             self.last_mission_end = None
+            self._new_turn(msg.get("turn", 0))
             if not is_initial:
                 self.buffered_pushes.append(msg)
             log.info("Turn %s started (%d units, %d enemies)",
@@ -318,6 +328,7 @@ class XcomProxy:
             self._tcp_lost()
             return
 
+        self._track_sent(len(line))
         self.pending_command = True
         self._wait_for_response()
 
@@ -376,13 +387,18 @@ class XcomProxy:
                 for _ in range(i + 1, len(commands)):
                     results.append({"error": "tcp_disconnected"})
                 break
+            # Track each batch response individually
+            resp_bytes = len(json.dumps(resp, separators=(",", ":")).encode())
+            self._track_recv(resp_bytes)
             results.append(resp)
 
-        self._send_unix(results)
+        # Send combined result (don't double-count in _send_unix)
+        self._send_unix_raw(results)
 
     def _forward_one(self, cmd):
         """Forward a single command to TCP, wait for response. Returns response dict or None on TCP loss."""
         line = json.dumps(cmd, separators=(",", ":")).encode()
+        self._track_sent(len(line))
         try:
             self.tcp_sock.sendall(line + b"\n")
         except (BrokenPipeError, ConnectionResetError, OSError) as e:
@@ -480,8 +496,60 @@ class XcomProxy:
                 self._send_unix(self.last_mission_end)
             else:
                 self._send_unix({"error": "no_mission_end"})
+        elif meta == "__stats__":
+            self._send_unix({
+                "current_turn": self._current_turn,
+                "turn_cmds": self._turn_cmds,
+                "turn_sent_tokens": self._turn_sent_bytes // 4,
+                "turn_recv_tokens": self._turn_recv_bytes // 4,
+                "total_cmds": self._total_cmds,
+                "total_sent_tokens": self._total_sent_bytes // 4,
+                "total_recv_tokens": self._total_recv_bytes // 4,
+                "turn_history": self._turn_history,
+            })
         else:
             self._send_unix({"error": f"unknown_meta: {meta}"})
+
+    def _track_sent(self, nbytes):
+        """Track bytes sent to game."""
+        self._turn_cmds += 1
+        self._turn_sent_bytes += nbytes
+        self._total_cmds += 1
+        self._total_sent_bytes += nbytes
+
+    def _track_recv(self, nbytes):
+        """Track bytes received from game."""
+        self._turn_recv_bytes += nbytes
+        self._total_recv_bytes += nbytes
+
+    def _new_turn(self, turn_num):
+        """Record turn boundary and reset per-turn counters."""
+        if self._turn_cmds > 0:
+            self._turn_history.append({
+                "turn": self._current_turn,
+                "cmds": self._turn_cmds,
+                "sent_tokens": self._turn_sent_bytes // 4,
+                "recv_tokens": self._turn_recv_bytes // 4,
+            })
+            # Keep last 20 turns
+            if len(self._turn_history) > 20:
+                self._turn_history = self._turn_history[-20:]
+        self._current_turn = turn_num
+        self._turn_cmds = 0
+        self._turn_sent_bytes = 0
+        self._turn_recv_bytes = 0
+
+    def _send_unix_raw(self, msg):
+        """Send JSON response to Unix client without tracking recv bytes."""
+        if not self.unix_client:
+            return
+        try:
+            data = json.dumps(msg, separators=(",", ":")).encode() + b"\n"
+            self.unix_client.sendall(data)
+            self.unix_client.shutdown(socket.SHUT_WR)
+        except (BrokenPipeError, ConnectionResetError, OSError) as e:
+            log.warning("Unix send failed: %s", e)
+        self._close_unix()
 
     def _send_unix(self, msg):
         """Send JSON response to Unix client and close it."""
@@ -489,6 +557,7 @@ class XcomProxy:
             return
         try:
             data = json.dumps(msg, separators=(",", ":")).encode() + b"\n"
+            self._track_recv(len(data))
             self.unix_client.sendall(data)
             self.unix_client.shutdown(socket.SHUT_WR)
         except (BrokenPipeError, ConnectionResetError, OSError) as e:

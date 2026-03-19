@@ -529,6 +529,7 @@ python3 xcom_cmd.py '{"action":"end_turn"}'
 python3 xcom_cmd.py --status        # TCP connection status, buffer state
 python3 xcom_cmd.py --turn-state    # Buffered turn_start (call once per turn)
 python3 xcom_cmd.py --events        # Buffered push events (drains buffer)
+python3 xcom_cmd.py --stats         # Token usage per turn and total
 ```
 
 ### Typical turn workflow
@@ -560,6 +561,7 @@ The proxy accepts meta-commands via JSON with a `meta` field (sent over Unix soc
 | Turn state | `{"meta":"__turn_state__"}` | Last `turn_start` message (full game state) |
 | Events | `{"meta":"__events__"}` | `{"events":[...]}` — buffered pushes, clears after read |
 | Mission end | `{"meta":"__mission_end__"}` | Last `mission_end` message |
+| Stats | `{"meta":"__stats__"}` | Token usage: per-turn and total (cmds, sent/recv tokens) |
 
 ### Batch queries
 
