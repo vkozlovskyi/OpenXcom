@@ -456,8 +456,9 @@ X-axis coordinates in header row, Y-axis coordinates as row labels. Column width
 | `a-z`| Building type (see `map_legend`) |
 | `u`  | UFO interior |
 | `s`  | X-COM craft interior |
-| `/`  | Stairs (down) |
-| `^`  | Gravlift |
+| `<`  | Stairs up (can ascend to z+1) |
+| `>`  | Stairs down (can descend to z-1) |
+| `^`  | Gravlift (bidirectional) |
 | `#`  | Impassable object |
 | ` `  | Void / hole / undiscovered |
 | `~`  | Smoke |
@@ -484,19 +485,99 @@ Included in `turn_start`, `game_state`, and map updates (after explosions/walks)
 
 ---
 
-## Test Client
+## Persistent Proxy (recommended)
+
+For efficient multi-command sessions, use the persistent proxy instead of direct TCP connections.
+
+### Architecture
+
+```
+┌─────────────┐     Unix socket       ┌──────────────┐      TCP       ┌──────────┐
+│  xcom_cmd.py │ ── command JSON ────► │ xcom_proxy.py │ ────────────► │ AIBridge │
+│  (CLI)       │ ◄─ response JSON ──── │ (daemon)      │ ◄──────────── │ (game)   │
+└─────────────┘  /tmp/xcom_proxy.sock  └──────────────┘ 127.0.0.1:    └──────────┘
+                                                            12345
+```
+
+The proxy maintains a single persistent TCP connection and buffers push messages (`turn_start`, `mission_end`). CLI clients connect via Unix socket, send one command, receive only the command response (no hello/turn_start drain), and disconnect.
+
+### Setup
+
+```bash
+# Start the proxy daemon (once, in background)
+python3 xcom_proxy.py &
+
+# Or with verbose logging
+python3 xcom_proxy.py --verbose &
+
+# Logs: /tmp/xcom_proxy.log
+```
+
+### Commands via proxy
+
+```bash
+# Game commands (same JSON as direct TCP)
+python3 xcom_cmd.py '{"action":"get_state","include_map":true}'
+python3 xcom_cmd.py '{"action":"walk","unit_id":1,"target":[13,18,0]}'
+python3 xcom_cmd.py '{"action":"shoot","unit_id":1,"target":[12,10,0],"shot_type":"aimed"}'
+python3 xcom_cmd.py '{"action":"get_path_cost","unit_id":1,"target":[8,17,0]}'
+python3 xcom_cmd.py '{"action":"get_fire_options","unit_id":1}'
+python3 xcom_cmd.py '{"action":"get_blast_check","target":[12,10,0],"radius":3}'
+python3 xcom_cmd.py '{"action":"end_turn"}'
+
+# Meta-commands (proxy-specific)
+python3 xcom_cmd.py --status        # TCP connection status, buffer state
+python3 xcom_cmd.py --turn-state    # Buffered turn_start (call once per turn)
+python3 xcom_cmd.py --events        # Buffered push events (drains buffer)
+```
+
+### Typical turn workflow
+
+```bash
+# 1. Get turn state (buffered, no TCP overhead)
+python3 xcom_cmd.py --turn-state
+
+# 2. Query and act (each call is instant — no hello/turn_start drain)
+python3 xcom_cmd.py '{"action":"get_fire_options","unit_id":1}'
+python3 xcom_cmd.py '{"action":"shoot","unit_id":1,"target":[12,10,0],"shot_type":"aimed"}'
+python3 xcom_cmd.py '{"action":"get_path_cost","unit_id":3,"target":[8,17,0]}'
+python3 xcom_cmd.py '{"action":"walk","unit_id":3,"target":[8,17,0]}'
+
+# 3. End turn
+python3 xcom_cmd.py '{"action":"end_turn"}'
+
+# 4. Wait for next turn, then get new state
+python3 xcom_cmd.py --turn-state
+```
+
+### Meta-command protocol
+
+The proxy accepts meta-commands via JSON with a `meta` field (sent over Unix socket):
+
+| Meta command | Request | Response |
+|---|---|---|
+| Status | `{"meta":"__status__"}` | `{"status":"connected","has_turn_start":true,...}` |
+| Turn state | `{"meta":"__turn_state__"}` | Last `turn_start` message (full game state) |
+| Events | `{"meta":"__events__"}` | `{"events":[...]}` — buffered pushes, clears after read |
+| Mission end | `{"meta":"__mission_end__"}` | Last `mission_end` message |
+
+### Error responses
+
+| Error | Meaning |
+|---|---|
+| `{"error":"tcp_disconnected"}` | Proxy lost TCP connection (auto-reconnects) |
+| `{"error":"busy"}` | Another command is in progress |
+| `{"error":"timeout"}` | Command timed out (60s) |
+| `{"error":"no_turn_start"}` | No turn_start buffered yet |
+
+---
+
+## Direct TCP Client (debugging)
+
+For direct TCP access without the proxy, use `test_interactive.py`. Each invocation opens a fresh TCP connection, drains hello/turn_start, sends one command, prints result, exits.
 
 ```bash
 python3 test_interactive.py '{"action":"get_state","include_map":true}'
 python3 test_interactive.py '{"action":"walk","unit_id":1,"target":[13,18,0]}'
-python3 test_interactive.py '{"action":"shoot","unit_id":1,"target":[12,10,0],"shot_type":"aimed"}'
-python3 test_interactive.py '{"action":"shoot","unit_id":1,"target":[12,10,0],"shot_type":"snap"}'
-python3 test_interactive.py '{"action":"launch","unit_id":1,"target":[12,10,0]}'
-python3 test_interactive.py '{"action":"get_path_cost","unit_id":1,"target":[8,17,0]}'
-python3 test_interactive.py '{"action":"get_fire_options","unit_id":1}'
-python3 test_interactive.py '{"action":"get_fire_options","unit_id":1,"from":[8,15,0]}'
-python3 test_interactive.py '{"action":"get_blast_check","target":[12,10,0],"radius":3}'
 python3 test_interactive.py '{"action":"end_turn"}'
 ```
-
-Each invocation opens fresh TCP connection, sends one command, prints result, exits.

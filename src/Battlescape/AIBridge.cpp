@@ -640,7 +640,8 @@ nlohmann::json AIBridge::serializeGameState(int turn, Language *lang) const
 	}
 	mapLegend["u"] = "UFO";
 	mapLegend["s"] = "craft";
-	mapLegend["/"] = "stairs";
+	mapLegend["<"] = "stairs_up";
+	mapLegend[">"] = "stairs_down";
 	mapLegend["^"] = "gravlift";
 
 	// ASCII map per z-level (only levels with discovered tiles)
@@ -925,7 +926,7 @@ nlohmann::json AIBridge::serializeVisibleEnemy(BattleUnit *unit, Language *lang)
  * X-axis header row, Y-axis labels on each row.
  *
  * Characters: a-z building/terrain type (see map_legend), # impassable, space undiscovered/void,
- * / stairs, ^ gravlift, 1-9/A-E player units (by index), X enemies, ~ smoke, * fire
+ * < stairs up (to z+1), > stairs down (to z-1), ^ gravlift, 1-9/A-E player units (by index), X enemies, ~ smoke, * fire
  *
  * @param z The z-level to render.
  * @return ASCII string with newlines separating rows.
@@ -1027,9 +1028,21 @@ std::string AIBridge::serializeAsciiMap(int z, const std::map<int, char> &dataSe
 				floorChar = '#'; // impassable object
 			}
 
-			// Stairs (terrainLevel <= -16 means stair top, auto z-transition)
-			if (tile->getTerrainLevel() <= -16)
-				floorChar = '/';
+			// Stairs: terrainLevel <= -16 enables z-level transition
+			bool canDescend = (tile->getTerrainLevel() <= -16 && z > 0);
+			bool canAscend = false;
+			if (z + 1 < _save->getMapSizeZ())
+			{
+				Tile *tileAbove = _save->getTile(Position(x, y, z + 1));
+				if (tileAbove && tileAbove->getTerrainLevel() <= -16)
+					canAscend = true;
+			}
+			if (canDescend && canAscend)
+				floorChar = '<'; // both directions — show ascend (more useful for navigation)
+			else if (canDescend)
+				floorChar = '>'; // descend only
+			else if (canAscend)
+				floorChar = '<'; // ascend only
 
 			// Gravlift
 			if ((floor && floor->isGravLift()) || (object && object->isGravLift()))
@@ -1232,7 +1245,8 @@ void AIBridge::attachMap(nlohmann::json &msg) const
 	}
 	mapLegend["u"] = "UFO";
 	mapLegend["s"] = "craft";
-	mapLegend["/"] = "stairs";
+	mapLegend["<"] = "stairs_up";
+	mapLegend[">"] = "stairs_down";
 	mapLegend["^"] = "gravlift";
 
 	nlohmann::json asciiMap;
