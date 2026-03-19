@@ -25,7 +25,7 @@ Sent automatically at the start of each player turn. Contains full game state.
   "units": [...],           // player units (full detail)
   "visible_enemies": [...], // enemies visible to any player unit
   "ascii_map": {"0": "...", "1": "..."},  // ASCII map per z-level
-  "map_legend": {"a": "CULTIVAT", "u": "UFO", "s": "craft", "/": "stairs", "^": "gravlift"},
+  "map_legend": {"a": "CULTIVAT", "u": "UFO", "s": "craft", "<": "stairs_up", ">": "stairs_down", "^": "gravlift"},
   "doors": [{"pos": [47, 39, 0], "side": "north", "ufo_door": true}, ...],
   "ufo_bounds": {"x_min":10, "y_min":20, "z_min":0, "x_max":15, "y_max":25, "z_max":1},
   "craft_bounds": {"x_min":12, "y_min":28, "z_min":0, "x_max":16, "y_max":36, "z_max":1}
