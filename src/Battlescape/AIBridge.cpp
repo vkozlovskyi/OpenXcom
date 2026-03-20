@@ -1428,7 +1428,7 @@ void AIBridge::notifyActionComplete(int unitId, const std::string &action, bool 
 					msg["ammo_left"] = 0;
 			}
 
-			// Visible enemies after this action
+			// Visible enemies after this action (full detail, same as top-level visible_enemies)
 			nlohmann::json enemies = nlohmann::json::array();
 			for (std::vector<BattleUnit*>::iterator j = _save->getUnits()->begin(); j != _save->getUnits()->end(); ++j)
 			{
@@ -1436,11 +1436,7 @@ void AIBridge::notifyActionComplete(int unitId, const std::string &action, bool 
 				if (enemy->getFaction() != FACTION_HOSTILE || enemy->isOut()) continue;
 				if (std::find(unit->getVisibleUnits()->begin(), unit->getVisibleUnits()->end(), enemy) != unit->getVisibleUnits()->end())
 				{
-					nlohmann::json e;
-					e["id"] = enemy->getId();
-					Position ep = enemy->getPosition();
-					e["pos"] = {ep.x, ep.y, ep.z};
-					enemies.push_back(e);
+					enemies.push_back(serializeVisibleEnemy(enemy, _lang));
 				}
 			}
 			msg["visible_enemies"] = enemies;

@@ -362,6 +362,7 @@ bool TileEngine::calculateFOV(BattleUnit *unit)
 					ev["type"] = "unit_spotted";
 					ev["spotter"] = unit->getId();
 					ev["spotted_unit"] = seen->getId();
+					ev["unit_type"] = seen->getType();
 					Position sp = seen->getPosition();
 					ev["position"] = {sp.x, sp.y, sp.z};
 					ev["spotted_faction"] = seen->getFaction() == FACTION_HOSTILE ? "hostile" : "neutral";
