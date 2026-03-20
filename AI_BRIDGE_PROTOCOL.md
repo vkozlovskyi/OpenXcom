@@ -15,7 +15,7 @@ TCP socket server on `127.0.0.1:12345`. JSON-lines protocol (one JSON per line, 
 ## Server Push Messages (no command needed)
 
 ### turn_start
-Sent automatically at the start of each player turn. Contains full game state.
+Sent automatically at the start of each player turn. Contains full game state and events from the enemy turn (kills, reaction fire, etc.).
 
 ```
 {
@@ -24,6 +24,7 @@ Sent automatically at the start of each player turn. Contains full game state.
   "map": {"size_x": 50, "size_y": 50, "size_z": 3, "global_shade": 5},  // global_shade: 0=brightest, 15=darkest (night). Affects accuracy.
   "units": [...],           // player units (full detail)
   "visible_enemies": [...], // enemies visible to any player unit
+  "events": [...],          // events from the enemy turn (check for casualties!)
   "ascii_map": {"0": "...", "1": "..."},  // ASCII map per z-level
   "map_legend": {"a": "CULTIVAT", "u": "UFO", "s": "craft", "<": "stairs_up", ">": "stairs_down", "^": "gravlift"},
   "doors": [{"pos": [47, 39, 0], "side": "north", "ufo_door": true}, ...],
@@ -285,7 +286,7 @@ Possible errors: `no_path`, `not_enough_tu`, `no_weapon`, `no_ammo`, `unit_not_f
 ---
 
 ## Events
-Accumulated in a queue, flushed with every command response (in `events` array). NOT flushed with push notifications (`turn_start`).
+Accumulated in a queue, flushed with every command response and with `turn_start` (in `events` array). Enemy-turn events (reaction fire, kills, etc.) are delivered in the next `turn_start`.
 
 ### shot_result
 ```json

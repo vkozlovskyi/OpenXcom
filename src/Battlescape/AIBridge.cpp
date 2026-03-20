@@ -466,9 +466,9 @@ void AIBridge::notifyTurnStart(int turn, Language *lang)
 	_lang = lang;
 
 	nlohmann::json msg = serializeGameState(turn, lang);
-	// Don't flush events here — turn_start is a push notification
-	// that may not reach anyone. Events stay in queue until an
-	// explicit client command (get_state, walk, etc.) flushes them.
+	// Flush events with turn_start so AI sees what happened during the enemy turn
+	// (kills, reaction fire, etc.) immediately rather than waiting for the first command.
+	msg["events"] = flushEvents();
 	sendMessage(msg);
 
 	Log(LOG_INFO) << "AIBridge: sent turn_start with game state (turn " << turn << ")";
