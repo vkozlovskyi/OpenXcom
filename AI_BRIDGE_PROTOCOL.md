@@ -173,7 +173,7 @@ Success response:
 }
 ```
 
-`path`: array of waypoints `[x, y, z, cumulative_tu]`. Each entry is a tile along the route with the total TU cost to reach it. Use this to pick intermediate destinations (e.g. walk halfway when TU is limited).
+`path`: array of **every tile** along the route as `[x, y, z, cumulative_tu]`. The last entry is always the target, and its cumulative_tu equals `tu_cost`. Use this to pick intermediate destinations (e.g. walk to an earlier tile when TU is limited).
 
 `energy_cost`: total stamina cost for the path (each step costs `step_tu / 2` energy; gravlift steps cost 0). If `energy_sufficient` is `false`, the unit will stop mid-walk when energy runs out, even if TU remain.
 
