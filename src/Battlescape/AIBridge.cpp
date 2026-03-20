@@ -1164,10 +1164,13 @@ nlohmann::json AIBridge::serializeDoors() const
 						nlohmann::json door;
 						door["pos"] = {x, y, z};
 						door["side"] = checks[i].side;
-						door["ufo_door"] = md->isUFODoor();
+						// Classify by dataset, not MCD flag — craft sliding doors (e.g. Skyranger ramp) also have isUFODoor()
+						int doorDataID, doorDataSetID;
+						tile->getMapData(&doorDataID, &doorDataSetID, checks[i].part);
+						door["ufo_door"] = ufoDataSets.count(doorDataSetID) > 0;
 
 						// Classify door type: entry (hull boundary) vs internal
-						if (md->isUFODoor() && (checks[i].dx != 0 || checks[i].dy != 0))
+						if (ufoDataSets.count(doorDataSetID) > 0 && (checks[i].dx != 0 || checks[i].dy != 0))
 						{
 							// Wall door — check floor datasets on both sides
 							int thisDataSetID, thisDataID;
