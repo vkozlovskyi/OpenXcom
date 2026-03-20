@@ -94,11 +94,13 @@ Fire a weapon at a tile. `shot_type`: `"snap"`, `"aimed"`, `"auto"`. `hand`: `"r
 Errors: `no_weapon`, `no_ammo`, `not_enough_tu`, `wrong_action_type`
 
 ### launch
-Fire a waypoint weapon (Blaster Launcher) at a target tile. Engine auto-routes the missile.
+Fire a waypoint weapon (Blaster Launcher). The bomb flies in a **straight line** between consecutive waypoints, so use intermediate `waypoints` to navigate around walls and obstacles. Without waypoints, the bomb flies directly from the shooter to the target and will explode on the first wall it hits.
 
 ```json
-{"action": "launch", "unit_id": 3, "target": [12, 10, 0]}
+{"action": "launch", "unit_id": 3, "target": [12, 10, 0], "waypoints": [[15, 20, 2], [12, 15, 2]]}
 ```
+
+`waypoints` (optional): array of `[x, y, z]` intermediate positions. The bomb flies: shooter → waypoint 1 → waypoint 2 → ... → target. Choose waypoints above or around obstacles (e.g. fly up to z+2, over a wall, then down to target). If omitted, the bomb flies directly to the target.
 
 Errors: `no_weapon`, `no_ammo`, `not_enough_tu`, `wrong_action_type` (weapon is not a launcher)
 

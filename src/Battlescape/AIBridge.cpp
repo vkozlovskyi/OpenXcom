@@ -373,6 +373,21 @@ void AIBridge::processMessage(const std::string &line)
 		);
 	}
 
+	// Parse waypoints array for launch command: [[x,y,z], [x,y,z], ...]
+	if (msg.contains("waypoints") && msg["waypoints"].is_array())
+	{
+		for (size_t i = 0; i < msg["waypoints"].size(); i++)
+		{
+			const auto &wp = msg["waypoints"][i];
+			if (wp.is_array() && wp.size() == 3)
+			{
+				cmd.waypoints.push_back(Position(
+					wp[0].get<int>(), wp[1].get<int>(), wp[2].get<int>()
+				));
+			}
+		}
+	}
+
 	// Validate action type
 	if (cmd.action != "select" && cmd.action != "walk" && cmd.action != "shoot" &&
 		cmd.action != "kneel" && cmd.action != "throw" && cmd.action != "prime" &&

@@ -348,9 +348,15 @@ void BattlescapeGame::executeAICommand(const AICommand &cmd)
 			return;
 		}
 
-		// Push target waypoint twice so waypoints.size() > 1.
-		// This ensures extendLine=false in Projectile::calculateTrajectory,
-		// making the bomb navigate TO the target instead of extending through it.
+		// Build waypoint chain: intermediate waypoints from AI + target at the end.
+		// Bomb flies straight-line between consecutive waypoints, so intermediates
+		// are needed to navigate around walls/obstacles.
+		// Always push target twice at the end so waypoints.size() > 1,
+		// ensuring extendLine=false in Projectile::calculateTrajectory.
+		for (size_t i = 0; i < cmd.waypoints.size(); i++)
+		{
+			action.waypoints.push_back(cmd.waypoints[i]);
+		}
 		action.waypoints.push_back(cmd.target);
 		action.waypoints.push_back(cmd.target);
 

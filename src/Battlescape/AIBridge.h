@@ -46,6 +46,7 @@ struct AICommand
 	Position from;        /// hypothetical position for get_fire_options (-1,-1,-1 = use current)
 	bool hasFrom;         /// whether 'from' was specified
 	int radius;           /// blast radius for get_blast_check
+	std::vector<Position> waypoints; /// intermediate waypoints for launch
 
 	AICommand() : unitId(-1), value(0), from(-1,-1,-1), hasFrom(false), radius(0) {}
 };
