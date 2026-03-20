@@ -417,6 +417,8 @@ A door was opened (by walking through or manual click).
 }
 ```
 
+`tu_snap`, `tu_aimed`, `tu_auto`, `tu_melee`, `tu_throw` are **absolute TU costs** already calculated for this specific unit (not percentages). Compare directly with the unit's `tu` to check affordability.
+
 Battle types: `firearm`, `ammo`, `melee`, `grenade`, `proximity_grenade`, `medikit`, `scanner`, `mind_probe`, `psi_amp`, `flare`, `corpse`, `none`
 
 ## Visible Enemy Data
