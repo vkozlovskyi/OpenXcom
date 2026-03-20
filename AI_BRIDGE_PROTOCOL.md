@@ -21,7 +21,7 @@ Sent automatically at the start of each player turn. Contains full game state.
 {
   "type": "turn_start",
   "turn": 1,
-  "map": {"size_x": 50, "size_y": 50, "size_z": 3, "global_shade": 5},
+  "map": {"size_x": 50, "size_y": 50, "size_z": 3, "global_shade": 5},  // global_shade: 0=brightest, 15=darkest (night). Affects accuracy.
   "units": [...],           // player units (full detail)
   "visible_enemies": [...], // enemies visible to any player unit
   "ascii_map": {"0": "...", "1": "..."},  // ASCII map per z-level
@@ -255,7 +255,7 @@ Returned after walk, shoot, kneel, throw, prime complete.
   "hp": 30,
   "direction": 4,
   "morale": 95,
-  "visible_enemies": [{"id": 20, "pos": [12, 10, 0]}],
+  "visible_enemies": [{"id": 20, "type": "STR_SECTOID_SOLDIER", "name": "Sectoid Soldier", "pos": [12, 10, 0], "direction": 6, "kneeling": false, "faction": "hostile"}],
   "events": [...]
 }
 ```
@@ -315,7 +315,7 @@ Accumulated in a queue, flushed with every command response (in `events` array).
 
 ### unit_spotted
 ```json
-{"type": "unit_spotted", "spotter": 3, "spotted_unit": 20, "position": [12, 10, 0], "spotted_faction": "hostile"}
+{"type": "unit_spotted", "spotter": 3, "spotted_unit": 20, "unit_type": "STR_SECTOID_SOLDIER", "position": [12, 10, 0], "spotted_faction": "hostile"}
 ```
 
 ### unit_panicking
@@ -382,7 +382,7 @@ A door was opened (by walking through or manual click).
   "name": "Bruce White",
   "type": "SOLDIER",
   "pos": [14, 30, 1],
-  "direction": 4,
+  "direction": 4,          // 0=N, 1=NE, 2=E, 3=SE, 4=S, 5=SW, 6=W, 7=NW
   "tu": 62, "tu_max": 62,
   "hp": 29, "hp_max": 29,
   "energy": 80, "energy_max": 80,
@@ -410,7 +410,7 @@ A door was opened (by walking through or manual click).
   "ammo_qty": 20,
   "power": 30,
   "max_range": 200,
-  "accuracy_snap": 60, "accuracy_aimed": 110, "accuracy_auto": 35,
+  "accuracy_snap": 60, "accuracy_aimed": 110, "accuracy_auto": 35,  // raw weapon accuracy (not final hit chance — use get_fire_options for that)
   "tu_snap": 25, "tu_aimed": 50, "tu_auto": 35,
   "tu_throw": 25,
   "two_handed": true
