@@ -1423,8 +1423,9 @@ void AIBridge::notifyActionComplete(int unitId, const std::string &action, bool 
 	// Attach accumulated events
 	msg["events"] = flushEvents();
 
-	// Enrich with unit state after action
-	if (success && unitId >= 0)
+	// Enrich with unit state after action.
+	// Always include state for walk — unit may have moved partially before running out of TU.
+	if ((success || action == "walk") && unitId >= 0)
 	{
 		BattleUnit *unit = 0;
 		for (std::vector<BattleUnit*>::iterator i = _save->getUnits()->begin(); i != _save->getUnits()->end(); ++i)
@@ -1477,7 +1478,7 @@ void AIBridge::notifyActionComplete(int unitId, const std::string &action, bool 
 		attachMap(msg);
 		_mapDirty = false;
 	}
-	else if (action == "walk" && success)
+	else if (action == "walk")
 	{
 		int discoveredNow = countDiscoveredTiles();
 		if (discoveredNow > _discoveredCountBefore)

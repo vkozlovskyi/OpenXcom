@@ -79,9 +79,9 @@ Move a unit to target tile. Async — unit animates, then `action_complete`.
 {"action": "walk", "unit_id": 3, "target": [10, 15, 0]}
 ```
 
-If the path is blocked mid-walk (e.g. another unit on the route), the unit stops early. The response always includes `pos` — compare with your target to detect partial movement. Use `get_path_cost` beforehand to check reachability.
+If the path is blocked mid-walk (e.g. another unit on the route) or the unit runs out of TU mid-path, it stops where it is. This is a partial walk — `success` is `false` with error `not_enough_tu`, but the unit **did move**. The response always includes `pos`, `tu`, `energy` etc. — compare `pos` with your target to detect partial movement. Use `get_path_cost` beforehand to check reachability and TU cost.
 
-Errors: `no_path`, `unit_not_found`
+Errors: `no_path`, `not_enough_tu` (partial walk), `unit_not_found`
 
 ### shoot
 Fire a weapon at a tile. `shot_type`: `"snap"`, `"aimed"`, `"auto"`. `hand`: `"right"` (default) or `"left"`.
@@ -552,7 +552,9 @@ python3 xcom_cmd.py '{"action":"walk","unit_id":3,"target":[8,17,0]}'
 # 3. End turn
 python3 xcom_cmd.py '{"action":"end_turn"}'
 
-# 4. Wait for next turn, then get new state
+# 4. Wait for next turn — alien turn takes a few seconds
+#    Poll --events until you see a new turn_start, then read state
+python3 xcom_cmd.py --events        # repeat until turn_start appears
 python3 xcom_cmd.py --turn-state
 ```
 
@@ -563,10 +565,12 @@ The proxy accepts meta-commands via JSON with a `meta` field (sent over Unix soc
 | Meta command | Request | Response |
 |---|---|---|
 | Status | `{"meta":"__status__"}` | `{"status":"connected","has_turn_start":true,...}` |
-| Turn state | `{"meta":"__turn_state__"}` | Last `turn_start` message (full game state) |
+| Turn state | `{"meta":"__turn_state__"}` | Last received `turn_start` (see note below) |
 | Events | `{"meta":"__events__"}` | `{"events":[...]}` — buffered pushes, clears after read |
 | Mission end | `{"meta":"__mission_end__"}` | Last `mission_end` message |
 | Stats | `{"meta":"__stats__"}` | Token usage: per-turn and total (cmds, sent/recv tokens) |
+
+**`--turn-state` timing:** Returns the last `turn_start` the proxy received. After `end_turn`, the alien turn takes a few seconds (movement, shots, animations). Until it finishes, `--turn-state` still returns the **previous** turn's data. To avoid stale reads, poll `--events` after `end_turn` and wait for a `turn_start` entry before calling `--turn-state`. You can also compare the `turn` field to detect stale state.
 
 ### Batch queries
 
