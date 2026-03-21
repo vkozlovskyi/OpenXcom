@@ -546,6 +546,19 @@ void AIBridge::notifyBattleEnd(const std::string &result)
 	}
 
 	sendMessage(msg);
+
+	// Flush immediately — this is the last message before the battlescape
+	// is torn down and the socket closed. tryWrite() alone may not send
+	// everything on a non-blocking socket, so loop with a short timeout.
+	for (int attempt = 0; attempt < 50 && !_sendBuf.empty() && _clientFd >= 0; ++attempt)
+	{
+		tryWrite();
+		if (!_sendBuf.empty())
+		{
+			// Brief sleep to let the kernel drain the send buffer
+			usleep(10000); // 10ms
+		}
+	}
 }
 
 /**
