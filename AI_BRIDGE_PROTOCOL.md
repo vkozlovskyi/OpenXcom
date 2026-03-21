@@ -487,6 +487,7 @@ Included in `turn_start`, `game_state`, and map updates (after explosions/walks)
 - `ufo_door`: true for UFO power doors (open vertically), false for regular hinged doors
 - `type` (UFO wall doors only): `"entry"` = hull entrance (one side UFO, other side terrain), `"internal"` = between UFO compartments. Use `"entry"` doors to find the UFO entrance — check surrounding tiles on the ASCII map to determine approach direction (`u` = inside, `a`/other = outside).
 - Destroyed doors disappear from the list (map refresh after explosions)
+- **Opening:** doors open when a unit **walks through** them (crosses the wall), not by standing next to them. A `"west"` door opens when stepping east↔west through that tile; a `"north"` door opens when stepping north↔south. Plan your walk target to cross the door wall.
 
 ---
 
