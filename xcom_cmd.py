@@ -126,7 +126,7 @@ def display(m):
         action = m.get("action", "?")
         ok = m.get("success", "?")
         err = m.get("error", "")
-        if action in ("get_path_cost", "get_fire_options", "get_blast_check", "get_reachable"):
+        if action in ("get_path_cost", "get_fire_options", "get_blast_check", "get_reachable", "get_launch_path"):
             display_obj = {k: v for k, v in m.items() if k not in ("ascii_map", "map_legend")}
             if action == "get_reachable" and "tiles" in display_obj:
                 n = len(display_obj["tiles"])

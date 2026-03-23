@@ -102,6 +102,14 @@ Fire a waypoint weapon (Blaster Launcher). The bomb flies in a **straight line**
 
 `waypoints` (optional): array of `[x, y, z]` intermediate positions. The bomb flies: shooter → waypoint 1 → waypoint 2 → ... → target. Choose waypoints above or around obstacles (e.g. fly up to z+2, over a wall, then down to target). If omitted, the bomb flies directly to the target.
 
+**WARNING — Blaster Launcher is extremely dangerous:**
+- The bomb has **60% accuracy** — it drifts randomly from the ideal trajectory. The higher and longer the flight, the more it can deviate.
+- If the bomb hits an obstacle mid-flight (building, UFO hull, terrain), it **explodes on impact** at that point — potentially killing your own soldiers.
+- **Always use `get_launch_path` first** to verify the trajectory is clear. If any segment is blocked, adjust waypoint heights.
+- **Always use `get_blast_check`** on the target to verify no friendlies are in the blast radius (typically 5-6 tiles).
+- Prefer short, direct trajectories with waypoints just high enough to clear obstacles. Excessively high or long paths increase drift risk.
+- When in doubt, use a different weapon. A missed blaster bomb can wipe your own squad.
+
 Errors: `no_weapon`, `no_ammo`, `not_enough_tu`, `wrong_action_type` (weapon is not a launcher)
 
 ### throw
@@ -231,6 +239,51 @@ Response:
   ]
 }
 ```
+
+### get_launch_path
+Read-only query. Checks if a blaster bomb trajectory is clear by tracing each segment between consecutive waypoints using voxel collision detection. Uses the **ideal** (no-drift) trajectory — the actual bomb has 60% accuracy and may deviate.
+
+```json
+{"action": "get_launch_path", "unit_id": 3, "target": [12, 10, 0], "waypoints": [[15, 20, 4], [12, 15, 4]]}
+```
+
+`waypoints` (optional): same format as `launch`. The trajectory is: unit position → waypoint 1 → ... → target.
+
+Response (clear path):
+```json
+{
+  "type": "action_complete",
+  "action": "get_launch_path",
+  "unit_id": 3,
+  "target": [12, 10, 0],
+  "waypoints": [[15, 20, 4], [12, 15, 4]],
+  "clear": true,
+  "segments": [
+    {"from": [15, 20, 0], "to": [15, 20, 4], "clear": true},
+    {"from": [15, 20, 4], "to": [12, 15, 4], "clear": true},
+    {"from": [12, 15, 4], "to": [12, 10, 0], "clear": true}
+  ]
+}
+```
+
+Response (blocked):
+```json
+{
+  "type": "action_complete",
+  "action": "get_launch_path",
+  "unit_id": 3,
+  "target": [12, 10, 0],
+  "clear": false,
+  "segments": [
+    {"from": [15, 20, 0], "to": [15, 20, 4], "clear": true},
+    {"from": [15, 20, 4], "to": [12, 15, 4], "clear": false, "hit_pos": [13, 17, 3], "hit_type": "object"}
+  ]
+}
+```
+
+`hit_type`: `"floor"`, `"westwall"`, `"northwall"`, `"object"`, `"unit"`, `"outofbounds"`.
+
+Stops at the first blocked segment (the bomb would explode there). If blocked, increase waypoint Z to fly over the obstacle, then re-check.
 
 ### end_turn
 End the player's turn.
@@ -529,6 +582,7 @@ python3 xcom_cmd.py '{"action":"shoot","unit_id":1,"target":[12,10,0],"shot_type
 python3 xcom_cmd.py '{"action":"get_path_cost","unit_id":1,"target":[8,17,0]}'
 python3 xcom_cmd.py '{"action":"get_fire_options","unit_id":1}'
 python3 xcom_cmd.py '{"action":"get_blast_check","target":[12,10,0],"radius":3}'
+python3 xcom_cmd.py '{"action":"get_launch_path","unit_id":3,"target":[12,10,0],"waypoints":[[15,20,4],[12,15,4]]}'
 python3 xcom_cmd.py '{"action":"end_turn"}'
 
 # Meta-commands (proxy-specific)
@@ -575,7 +629,7 @@ The proxy accepts meta-commands via JSON with a `meta` field (sent over Unix soc
 
 ### Batch queries
 
-Send a JSON array of **read-only** queries to execute them in a single call. Returns an array of responses (1:1 mapping). Only these actions are allowed in batch: `get_path_cost`, `get_fire_options`, `get_blast_check`, `get_reachable`, `get_state`.
+Send a JSON array of **read-only** queries to execute them in a single call. Returns an array of responses (1:1 mapping). Only these actions are allowed in batch: `get_path_cost`, `get_fire_options`, `get_blast_check`, `get_launch_path`, `get_reachable`, `get_state`.
 
 Actions that modify game state (`walk`, `shoot`, `turn`, etc.) are **rejected** — they must be sent individually so the AI can react to events between commands.
 

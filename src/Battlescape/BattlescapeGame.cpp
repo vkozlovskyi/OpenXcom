@@ -643,6 +643,111 @@ void BattlescapeGame::executeAICommand(const AICommand &cmd)
 		msg["events"] = _aiBridge->flushEvents();
 		_aiBridge->sendMessage(msg);
 	}
+	// --- GET LAUNCH PATH ---
+	else if (cmd.action == "get_launch_path")
+	{
+		TileEngine *te = _save->getTileEngine();
+
+		// Build waypoint chain: unit position -> intermediate waypoints -> target -> target
+		// Same as the launch command (duplicate target for extendLine=false)
+		std::vector<Position> chain;
+		chain.push_back(unit->getPosition());
+		for (size_t i = 0; i < cmd.waypoints.size(); i++)
+			chain.push_back(cmd.waypoints[i]);
+		chain.push_back(cmd.target);
+		chain.push_back(cmd.target);
+
+		bool clear = true;
+		nlohmann::json segments = nlohmann::json::array();
+
+		for (size_t seg = 0; seg + 1 < chain.size(); seg++)
+		{
+			Position fromTile = chain[seg];
+			Position toTile = chain[seg + 1];
+
+			// Skip duplicate final segment (from==to, floor targeting)
+			if (fromTile == toTile)
+				break;
+
+			// Compute origin voxel
+			Position originVoxel;
+			if (seg == 0)
+			{
+				// First segment: use getOriginVoxel (accounts for soldier height/terrain)
+				BattleAction dummyAction;
+				dummyAction.actor = unit;
+				dummyAction.type = BA_LAUNCH;
+				dummyAction.target = toTile;
+				originVoxel = te->getOriginVoxel(dummyAction, _save->getTile(fromTile));
+			}
+			else
+			{
+				// Subsequent segments: tile center (matching getOriginVoxel non-actor branch)
+				originVoxel = Position(fromTile.x * 16 + 8, fromTile.y * 16 + 8, fromTile.z * 24 + 16);
+			}
+
+			// Target voxel: center of target tile
+			Position targetVoxel(toTile.x * 16 + 8, toTile.y * 16 + 8, toTile.z * 24 + 12);
+
+			// Trace the line with voxel checking, excluding the launching unit
+			std::vector<Position> trajectory;
+			int result = te->calculateLine(originVoxel, targetVoxel, false, &trajectory, unit);
+
+			nlohmann::json segJson;
+			segJson["from"] = {fromTile.x, fromTile.y, fromTile.z};
+			segJson["to"] = {toTile.x, toTile.y, toTile.z};
+
+			if (result == V_EMPTY)
+			{
+				segJson["clear"] = true;
+			}
+			else
+			{
+				Position hitTile;
+				if (!trajectory.empty())
+				{
+					Position hv = trajectory.back();
+					hitTile = Position(hv.x / 16, hv.y / 16, hv.z / 24);
+					segJson["hit_pos"] = {hitTile.x, hitTile.y, hitTile.z};
+				}
+
+				const char* hitTypes[] = {"floor", "westwall", "northwall", "object", "unit", "outofbounds"};
+				if (result >= 0 && result <= 5)
+					segJson["hit_type"] = hitTypes[result];
+
+				// Hitting the target tile itself is expected (bomb reaches destination)
+				if (hitTile == cmd.target)
+				{
+					segJson["clear"] = true;
+				}
+				else
+				{
+					segJson["clear"] = false;
+					clear = false;
+					segments.push_back(segJson);
+					break; // bomb explodes at first collision
+				}
+			}
+			segments.push_back(segJson);
+		}
+
+		nlohmann::json msg;
+		msg["type"] = "action_complete";
+		msg["action"] = "get_launch_path";
+		msg["unit_id"] = cmd.unitId;
+		msg["target"] = {cmd.target.x, cmd.target.y, cmd.target.z};
+		if (!cmd.waypoints.empty())
+		{
+			nlohmann::json wps = nlohmann::json::array();
+			for (size_t i = 0; i < cmd.waypoints.size(); i++)
+				wps.push_back({cmd.waypoints[i].x, cmd.waypoints[i].y, cmd.waypoints[i].z});
+			msg["waypoints"] = wps;
+		}
+		msg["clear"] = clear;
+		msg["segments"] = segments;
+		msg["events"] = _aiBridge->flushEvents();
+		_aiBridge->sendMessage(msg);
+	}
 	// --- GET PATH COST ---
 	else if (cmd.action == "get_path_cost")
 	{

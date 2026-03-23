@@ -395,6 +395,7 @@ void AIBridge::processMessage(const std::string &line)
 		cmd.action != "get_path_cost" &&
 		cmd.action != "get_fire_options" &&
 		cmd.action != "get_blast_check" &&
+		cmd.action != "get_launch_path" &&
 		cmd.action != "launch" &&
 		cmd.action != "turn")
 	{
@@ -412,7 +413,7 @@ void AIBridge::processMessage(const std::string &line)
 	// Validate target is present and is [x, y, z] array for actions that need it
 	if (cmd.action == "walk" || cmd.action == "shoot" || cmd.action == "throw" ||
 		cmd.action == "get_path_cost" || cmd.action == "get_blast_check" ||
-		cmd.action == "launch")
+		cmd.action == "launch" || cmd.action == "get_launch_path")
 	{
 		if (!msg.contains("target"))
 		{
