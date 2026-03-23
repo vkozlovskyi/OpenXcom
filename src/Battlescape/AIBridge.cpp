@@ -1051,7 +1051,7 @@ std::string AIBridge::serializeAsciiMap(int z, const std::map<int, char> &dataSe
 				if (tile->hasNoFloor(tileBelow))
 					floorChar = ' '; // void/hole
 			}
-			else if (object && object->getTUCost(MT_WALK) == 255)
+			else if (object && tile->getTUCost(O_OBJECT, MT_WALK) == 255)
 			{
 				floorChar = '#'; // impassable object
 			}
