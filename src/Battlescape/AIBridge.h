@@ -80,7 +80,10 @@ private:
 	int _discoveredCountBefore;              /// discovered tile count before walk (for map delta detection)
 	bool _mapDirty;                          /// true when map changed (explosion, fire, door, etc.)
 	bool _wasUsed;                           /// true after first client command (persists across reconnects)
+	bool _fogOfWar;                          /// true = hide undiscovered tiles (default), false = show full map
 
+	/// Returns true if a tile should be shown on the ASCII map (fog of war check).
+	bool isTileVisible(Tile *tile) const;
 	/// Sets a file descriptor to non-blocking mode.
 	bool setNonBlocking(int fd);
 	/// Tries to accept a pending connection.

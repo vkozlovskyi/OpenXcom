@@ -2,6 +2,13 @@
 
 TCP socket server on `127.0.0.1:12345`. JSON-lines protocol (one JSON per line, `\n` delimited).
 
+## Configuration (options.cfg)
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `ai-server` | int | 0 | TCP port for AI Bridge (0 = disabled) |
+| `aiFogOfWar` | bool | true | When `false`, ASCII map shows **all** tiles from the start (no fog of war). Enemies are still hidden — only visible through LOS (`visible_enemies`). Map is sent once in `turn_start` and only re-sent when terrain changes (explosions, doors). |
+
 ## Connection Flow
 
 1. Client connects via TCP
@@ -399,7 +406,7 @@ Melee attack hit/miss result (analogous to `shot_result` for ranged).
 ```
 
 ### terrain_destroyed
-Explosion destroyed terrain. AI should request updated map via `get_state` with `include_map: true`.
+Explosion destroyed terrain. The updated ASCII map is automatically attached to the `action_complete` response (via `_mapDirty` flag). No need to request it separately.
 ```json
 {"type": "terrain_destroyed", "center": [12, 10, 0], "radius": 5, "power": 60}
 ```
@@ -495,7 +502,7 @@ Battle types: `firearm`, `ammo`, `melee`, `grenade`, `proximity_grenade`, `medik
 
 ## ASCII Map Format
 
-1x1 character per tile with coordinate axes. Only the bounding box of discovered tiles is rendered. No walls — cover is checked via `get_fire_options`, passability via `get_path_cost`.
+1x1 character per tile with coordinate axes. With fog of war enabled (default), only the bounding box of discovered tiles is rendered. With `aiFogOfWar: false`, the full map is shown from turn 1. No walls — cover is checked via `get_fire_options`, passability via `get_path_cost`.
 
 Example:
 ```
@@ -518,7 +525,7 @@ X-axis coordinates in header row, Y-axis coordinates as row labels. Column width
 | `>`  | Stairs down (can descend to z-1) |
 | `^`  | Gravlift (bidirectional) |
 | `#`  | Impassable object |
-| ` `  | Void / hole / undiscovered |
+| ` `  | Void / hole (or undiscovered, if fog of war enabled) |
 | `~`  | Smoke |
 | `*`  | Fire |
 | `1-9`, `A-E` | Player unit (by index) |
@@ -526,7 +533,7 @@ X-axis coordinates in header row, Y-axis coordinates as row labels. Column width
 
 ## Doors
 
-Included in `turn_start`, `game_state`, and map updates (after explosions/walks). Lists all doors on discovered tiles.
+Included in `turn_start`, `game_state`, and map updates (after explosions/walks). Lists all doors on visible tiles (all tiles if `aiFogOfWar: false`).
 
 ```json
 "doors": [

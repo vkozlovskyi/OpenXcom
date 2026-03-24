@@ -19,6 +19,7 @@
 #include "AIBridge.h"
 #include "BattlescapeGame.h"
 #include "../Engine/Logger.h"
+#include "../Engine/Options.h"
 #include "../Engine/Language.h"
 #include "../Savegame/SavedBattleGame.h"
 #include "../Savegame/BattleUnit.h"
@@ -48,8 +49,18 @@ namespace OpenXcom
  * Creates the AIBridge with a reference to the battle state.
  * @param save Pointer to the saved battle game.
  */
-AIBridge::AIBridge(SavedBattleGame *save) : _listenFd(-1), _clientFd(-1), _port(0), _enabled(false), _lastTurnSent(-1), _currentTurn(0), _lang(0), _save(save), _hasPendingCommand(false), _actionExecuting(false), _executingUnitId(-1), _discoveredCountBefore(0), _mapDirty(false), _wasUsed(false)
+AIBridge::AIBridge(SavedBattleGame *save) : _listenFd(-1), _clientFd(-1), _port(0), _enabled(false), _lastTurnSent(-1), _currentTurn(0), _lang(0), _save(save), _hasPendingCommand(false), _actionExecuting(false), _executingUnitId(-1), _discoveredCountBefore(0), _mapDirty(false), _wasUsed(false), _fogOfWar(Options::aiFogOfWar)
 {
+}
+
+/**
+ * Returns true if a tile should be shown on the ASCII map.
+ * When fog of war is disabled, all non-null tiles are visible.
+ */
+bool AIBridge::isTileVisible(Tile *tile) const
+{
+	if (!tile) return false;
+	return !_fogOfWar || tile->isDiscovered(2);
 }
 
 /**
@@ -482,6 +493,16 @@ void AIBridge::notifyTurnStart(int turn, Language *lang)
 	_lang = lang;
 
 	nlohmann::json msg = serializeGameState(turn, lang);
+	// When fog of war is off, map only changes on explosions/doors (_mapDirty).
+	// Strip it from turn_start after the first turn to save tokens (~4K per turn).
+	if (!_fogOfWar && turn > 1 && !_mapDirty)
+	{
+		msg.erase("ascii_map");
+		msg.erase("map_legend");
+		msg.erase("doors");
+	}
+	if (_mapDirty)
+		_mapDirty = false;
 	// Flush events with turn_start so AI sees what happened during the enemy turn
 	// (kills, reaction fire, etc.) immediately rather than waiting for the first command.
 	msg["events"] = flushEvents();
@@ -683,7 +704,7 @@ nlohmann::json AIBridge::serializeGameState(int turn, Language *lang) const
 			for (int x = 0; x < sizeX && !hasDiscovered; x++)
 			{
 				Tile *tile = _save->getTile(Position(x, y, z));
-				if (tile && tile->isDiscovered(2) && !tile->isVoid())
+				if (isTileVisible(tile) && !tile->isVoid())
 					hasDiscovered = true;
 			}
 		}
@@ -705,7 +726,7 @@ nlohmann::json AIBridge::serializeGameState(int turn, Language *lang) const
 			for (int x2 = 0; x2 < sizeX; x2++)
 			{
 				Tile *t = _save->getTile(Position(x2, y2, z2));
-				if (!t || !t->isDiscovered(2)) continue;
+				if (!isTileVisible(t)) continue;
 				for (int part = 0; part < 4; part++)
 				{
 					int mdID, mdsID;
@@ -999,7 +1020,7 @@ std::string AIBridge::serializeAsciiMap(int z, const std::map<int, char> &dataSe
 		for (int x = 0; x < sizeX; x++)
 		{
 			Tile *tile = _save->getTile(Position(x, y, z));
-			if (tile && tile->isDiscovered(2) && !tile->isVoid())
+			if (isTileVisible(tile) && !tile->isVoid())
 			{
 				if (x < minX) minX = x;
 				if (x > maxX) maxX = x;
@@ -1020,7 +1041,7 @@ std::string AIBridge::serializeAsciiMap(int z, const std::map<int, char> &dataSe
 		for (int x = minX; x <= maxX; x++)
 		{
 			Tile *tile = _save->getTile(Position(x, y, z));
-			if (!tile || !tile->isDiscovered(2) || tile->isVoid()) continue;
+			if (!isTileVisible(tile) || tile->isVoid()) continue;
 
 			// Determine zone character from MapDataSet (building type)
 			char zoneChar = '.';
@@ -1184,11 +1205,11 @@ nlohmann::json AIBridge::serializeDoors() const
 					MapData *md = tile->getMapData(checks[i].part);
 					if (md && (md->isDoor() || md->isUFODoor()))
 					{
-						// Show door if either side of the wall is discovered
-						bool thisDiscovered = tile->isDiscovered(2);
+						// Show door if either side of the wall is visible
+						bool thisVisible = isTileVisible(tile);
 						Tile *adj = _save->getTile(Position(x + checks[i].dx, y + checks[i].dy, z));
-						bool adjDiscovered = adj && adj->isDiscovered(2);
-						if (!thisDiscovered && !adjDiscovered) continue;
+						bool adjVisible = isTileVisible(adj);
+						if (!thisVisible && !adjVisible) continue;
 
 						nlohmann::json door;
 						door["pos"] = {x, y, z};
@@ -1237,7 +1258,7 @@ int AIBridge::countDiscoveredTiles() const
 			for (int x = 0; x < sizeX; x++)
 			{
 				Tile *tile = _save->getTile(Position(x, y, z));
-				if (tile && tile->isDiscovered(2))
+				if (isTileVisible(tile))
 					count++;
 			}
 	return count;
@@ -1292,7 +1313,7 @@ void AIBridge::attachMap(nlohmann::json &msg) const
 			for (int x = 0; x < sizeX && !hasDiscovered; x++)
 			{
 				Tile *tile = _save->getTile(Position(x, y, z));
-				if (tile && tile->isDiscovered(2) && !tile->isVoid())
+				if (isTileVisible(tile) && !tile->isVoid())
 					hasDiscovered = true;
 			}
 		if (hasDiscovered)

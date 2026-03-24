@@ -2248,14 +2248,17 @@ int TileEngine::unitOpensDoor(BattleUnit *unit, bool rClick, int dir)
 			ev["unit_id"] = unit->getId();
 			ev["ufo_door"] = (door == 1);
 			bridge->pushEvent(ev);
-			bridge->setMapDirty();
+			// With fog of war, opening a door reveals new tiles — map needs refresh.
+			// Without fog, AI already sees everything — door state doesn't affect ASCII map.
+			if (Options::aiFogOfWar)
+				bridge->setMapDirty();
 		}
 	}
 	else if ((door == 0 || door == 1) && tile)
 	{
-		// Still mark map dirty for enemy doors (affects FOV/visibility)
+		// Enemy doors: only mark dirty when fog of war is on (reveals tiles behind door).
 		AIBridge *bridge = _save->getBattleGame() ? _save->getBattleGame()->getAIBridge() : 0;
-		if (bridge)
+		if (bridge && Options::aiFogOfWar)
 			bridge->setMapDirty();
 	}
 
