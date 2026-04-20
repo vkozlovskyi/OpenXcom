@@ -19,7 +19,7 @@ TCP_RECONNECT_INTERVAL = 2.0
 COMMAND_TIMEOUT = 60.0
 
 # Response types that indicate a command is complete
-TERMINAL_TYPES = frozenset(["action_complete", "action_error", "game_state", "reachable", "mission_end"])
+TERMINAL_TYPES = frozenset(["action_complete", "action_error", "error", "game_state", "reachable", "mission_end"])
 
 # Read-only queries that can be batched (no game state changes, no animations)
 QUERY_ACTIONS = frozenset(["get_path_cost", "get_fire_options", "get_blast_check", "get_reachable", "get_state", "get_launch_path"])
