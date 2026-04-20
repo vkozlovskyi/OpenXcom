@@ -145,7 +145,7 @@ void create()
 	_info.push_back(OptionInfo("lazyLoadResources", &lazyLoadResources, true));
 	_info.push_back(OptionInfo("backgroundMute", &backgroundMute, false));
 	_info.push_back(OptionInfo("ai-server", &aiServerPort, 0));
-	_info.push_back(OptionInfo("aiFogOfWar", &aiFogOfWar, true));
+	_info.push_back(OptionInfo("aiFogOfWar", &aiFogOfWar, false));
 
 	// advanced options
 	_info.push_back(OptionInfo("playIntro", &playIntro, true, "STR_PLAYINTRO", "STR_GENERAL"));
