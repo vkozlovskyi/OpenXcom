@@ -976,7 +976,7 @@ nlohmann::json AIBridge::serializeVisibleEnemy(BattleUnit *unit, Language *lang)
  * X-axis header row, Y-axis labels on each row.
  *
  * Characters: a-z building/terrain type (see map_legend), # impassable, space undiscovered/void,
- * < stairs up (to z+1), > stairs down (to z-1), ^ gravlift, 1-9/A-E player units (by index), X enemies, ~ smoke, * fire
+ * < stairs up (to z+1), > stairs down (to z-1), ^ gravlift, ~ smoke, * fire
  *
  * @param z The z-level to render.
  * @return ASCII string with newlines separating rows.
@@ -985,34 +985,6 @@ std::string AIBridge::serializeAsciiMap(int z, const std::map<int, char> &dataSe
 {
 	int sizeX = _save->getMapSizeX();
 	int sizeY = _save->getMapSizeY();
-
-	// Build set of visible enemy IDs (only show enemies the player can actually see)
-	std::set<int> visibleEnemyIds;
-	for (std::vector<BattleUnit*>::iterator i = _save->getUnits()->begin(); i != _save->getUnits()->end(); ++i)
-	{
-		BattleUnit *u = *i;
-		if (u->getFaction() != FACTION_PLAYER || u->isOut()) continue;
-		for (std::vector<BattleUnit*>::iterator j = u->getVisibleUnits()->begin(); j != u->getVisibleUnits()->end(); ++j)
-		{
-			visibleEnemyIds.insert((*j)->getId());
-		}
-	}
-
-	// Build index of player units for numbering (1-9, A-E)
-	std::map<int, char> unitChars; // unit ID -> display char
-	int unitIdx = 0;
-	for (std::vector<BattleUnit*>::iterator i = _save->getUnits()->begin(); i != _save->getUnits()->end(); ++i)
-	{
-		BattleUnit *u = *i;
-		if (u->getFaction() != FACTION_PLAYER || u->isOut()) continue;
-		char c;
-		if (unitIdx < 9)
-			c = '1' + unitIdx;
-		else
-			c = 'A' + (unitIdx - 9);
-		unitChars[u->getId()] = c;
-		unitIdx++;
-	}
 
 	// Find bounding box of discovered tiles on this z-level
 	int minX = sizeX, maxX = -1, minY = sizeY, maxY = -1;
@@ -1103,23 +1075,6 @@ std::string AIBridge::serializeAsciiMap(int z, const std::map<int, char> &dataSe
 				floorChar = '*';
 			else if (tile->getSmoke() > 0)
 				floorChar = '~';
-
-			// Override with units
-			BattleUnit *tileUnit = tile->getUnit();
-			if (tileUnit)
-			{
-				if (tileUnit->getFaction() == FACTION_PLAYER && !tileUnit->isOut())
-				{
-					std::map<int, char>::iterator it = unitChars.find(tileUnit->getId());
-					if (it != unitChars.end())
-						floorChar = it->second;
-				}
-				else if (tileUnit->getFaction() == FACTION_HOSTILE && !tileUnit->isOut()
-				&& visibleEnemyIds.count(tileUnit->getId()))
-				{
-					floorChar = 'X';
-				}
-			}
 
 			grid[(y - minY) * w + (x - minX)] = floorChar;
 		}
