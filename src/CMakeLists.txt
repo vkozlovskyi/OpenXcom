@@ -480,7 +480,7 @@ add_executable ( openxcom  ${application_type} ${openxcom_src} ${openxcom_icon} 
 install ( TARGETS openxcom ${install_dest} DESTINATION ${CMAKE_INSTALL_BINDIR} )
 # Extra link flags for Windows. They need to be set before the SDL/YAML link flags, otherwise you will get strange link errors ('Undefined reference to WinMain@16')
 if ( WIN32 )
-  set ( basic_windows_libs advapi32.lib shell32.lib shlwapi.lib )
+  set ( basic_windows_libs advapi32.lib shell32.lib shlwapi.lib ws2_32.lib )
   if ( MINGW )
     set ( basic_windows_libs ${basic_windows_libs} mingw32 -mwindows )
     set ( static_flags  -static )

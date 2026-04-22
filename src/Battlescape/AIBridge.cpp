@@ -30,12 +30,30 @@
 #include "../Mod/MapData.h"
 #include "../Mod/Unit.h"
 #include "../Mod/MapDataSet.h"
-#include <sys/socket.h>
-#include <sys/select.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <fcntl.h>
+// Cross-platform socket compatibility
+#ifdef _WIN32
+  #ifndef NOMINMAX
+  #define NOMINMAX
+  #endif
+  #include <winsock2.h>
+  #include <ws2tcpip.h>
+  #pragma comment(lib, "ws2_32.lib")
+  #define socket_close closesocket
+  #define SOCK_ERRNO WSAGetLastError()
+  #define SOCK_EAGAIN WSAEWOULDBLOCK
+  #define SOCK_EWOULDBLOCK WSAEWOULDBLOCK
+#else
+  #include <sys/socket.h>
+  #include <sys/select.h>
+  #include <netinet/in.h>
+  #include <arpa/inet.h>
+  #include <unistd.h>
+  #include <fcntl.h>
+  #define socket_close close
+  #define SOCK_ERRNO errno
+  #define SOCK_EAGAIN EAGAIN
+  #define SOCK_EWOULDBLOCK EWOULDBLOCK
+#endif
 #include <cerrno>
 #include <cstring>
 #include <map>
@@ -45,11 +63,21 @@
 namespace OpenXcom
 {
 
+/// Returns a human-readable description of the last socket error.
+static std::string socketError()
+{
+#ifdef _WIN32
+	return "WSA error " + std::to_string(WSAGetLastError());
+#else
+	return strerror(errno);
+#endif
+}
+
 /**
  * Creates the AIBridge with a reference to the battle state.
  * @param save Pointer to the saved battle game.
  */
-AIBridge::AIBridge(SavedBattleGame *save) : _listenFd(-1), _clientFd(-1), _port(0), _enabled(false), _lastTurnSent(-1), _currentTurn(0), _lang(0), _save(save), _hasPendingCommand(false), _actionExecuting(false), _executingUnitId(-1), _discoveredCountBefore(0), _mapDirty(false), _wasUsed(false), _fogOfWar(Options::aiFogOfWar)
+AIBridge::AIBridge(SavedBattleGame *save) : _listenFd(SOCKET_INVALID), _clientFd(SOCKET_INVALID), _port(0), _enabled(false), _lastTurnSent(-1), _currentTurn(0), _lang(0), _save(save), _hasPendingCommand(false), _actionExecuting(false), _executingUnitId(-1), _discoveredCountBefore(0), _mapDirty(false), _wasUsed(false), _fogOfWar(Options::aiFogOfWar)
 {
 }
 
@@ -72,15 +100,20 @@ AIBridge::~AIBridge()
 }
 
 /**
- * Sets a file descriptor to non-blocking mode.
- * @param fd File descriptor.
+ * Sets a socket to non-blocking mode.
+ * @param fd Socket descriptor.
  * @return True on success.
  */
-bool AIBridge::setNonBlocking(int fd)
+bool AIBridge::setNonBlocking(socket_t fd)
 {
+#ifdef _WIN32
+	u_long mode = 1;
+	return ioctlsocket(fd, FIONBIO, &mode) == 0;
+#else
 	int flags = fcntl(fd, F_GETFL, 0);
 	if (flags < 0) return false;
 	return fcntl(fd, F_SETFL, flags | O_NONBLOCK) >= 0;
+#endif
 }
 
 /**
@@ -92,15 +125,24 @@ bool AIBridge::start(int port)
 {
 	_port = port;
 
-	_listenFd = socket(AF_INET, SOCK_STREAM, 0);
-	if (_listenFd < 0)
+#ifdef _WIN32
+	WSADATA wsaData;
+	if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
 	{
-		Log(LOG_ERROR) << "AIBridge: socket() failed: " << strerror(errno);
+		Log(LOG_ERROR) << "AIBridge: WSAStartup() failed";
+		return false;
+	}
+#endif
+
+	_listenFd = socket(AF_INET, SOCK_STREAM, 0);
+	if (_listenFd == SOCKET_INVALID)
+	{
+		Log(LOG_ERROR) << "AIBridge: socket() failed: " << socketError();
 		return false;
 	}
 
 	int opt = 1;
-	setsockopt(_listenFd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+	setsockopt(_listenFd, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
 
 	struct sockaddr_in addr;
 	memset(&addr, 0, sizeof(addr));
@@ -110,25 +152,25 @@ bool AIBridge::start(int port)
 
 	if (bind(_listenFd, (struct sockaddr*)&addr, sizeof(addr)) < 0)
 	{
-		Log(LOG_ERROR) << "AIBridge: bind() failed on port " << port << ": " << strerror(errno);
-		close(_listenFd);
-		_listenFd = -1;
+		Log(LOG_ERROR) << "AIBridge: bind() failed on port " << port << ": " << socketError();
+		socket_close(_listenFd);
+		_listenFd = SOCKET_INVALID;
 		return false;
 	}
 
 	if (listen(_listenFd, 1) < 0)
 	{
-		Log(LOG_ERROR) << "AIBridge: listen() failed: " << strerror(errno);
-		close(_listenFd);
-		_listenFd = -1;
+		Log(LOG_ERROR) << "AIBridge: listen() failed: " << socketError();
+		socket_close(_listenFd);
+		_listenFd = SOCKET_INVALID;
 		return false;
 	}
 
 	if (!setNonBlocking(_listenFd))
 	{
 		Log(LOG_ERROR) << "AIBridge: failed to set non-blocking mode";
-		close(_listenFd);
-		_listenFd = -1;
+		socket_close(_listenFd);
+		_listenFd = SOCKET_INVALID;
 		return false;
 	}
 
@@ -143,11 +185,15 @@ bool AIBridge::start(int port)
 void AIBridge::stop()
 {
 	closeClient();
-	if (_listenFd >= 0)
+	if (_listenFd != SOCKET_INVALID)
 	{
-		close(_listenFd);
-		_listenFd = -1;
+		socket_close(_listenFd);
+		_listenFd = SOCKET_INVALID;
 	}
+#ifdef _WIN32
+	if (_enabled)
+		WSACleanup();
+#endif
 	_enabled = false;
 }
 
@@ -163,17 +209,13 @@ void AIBridge::poll()
 	FD_ZERO(&readfds);
 	FD_ZERO(&writefds);
 
-	int maxfd = -1;
-
 	// Always listen for new connections (allows replacing old client)
 	FD_SET(_listenFd, &readfds);
-	maxfd = _listenFd;
 
-	if (_clientFd >= 0)
+	if (_clientFd != SOCKET_INVALID)
 	{
 		// Have client — check for incoming data
 		FD_SET(_clientFd, &readfds);
-		if (_clientFd > maxfd) maxfd = _clientFd;
 		if (!_sendBuf.empty())
 		{
 			FD_SET(_clientFd, &writefds);
@@ -184,18 +226,25 @@ void AIBridge::poll()
 	tv.tv_sec = 0;
 	tv.tv_usec = 0;
 
+	// On Windows the first parameter to select() is ignored.
+#ifdef _WIN32
+	int ret = select(0, &readfds, &writefds, NULL, &tv);
+#else
+	int maxfd = _listenFd;
+	if (_clientFd != SOCKET_INVALID && _clientFd > maxfd) maxfd = _clientFd;
 	int ret = select(maxfd + 1, &readfds, &writefds, NULL, &tv);
+#endif
 	if (ret <= 0) return;
 
 	if (FD_ISSET(_listenFd, &readfds))
 	{
 		tryAccept();
 	}
-	if (_clientFd >= 0)
+	if (_clientFd != SOCKET_INVALID)
 	{
 		if (FD_ISSET(_clientFd, &readfds))
 			tryRead();
-		if (_clientFd >= 0 && FD_ISSET(_clientFd, &writefds))
+		if (_clientFd != SOCKET_INVALID && FD_ISSET(_clientFd, &writefds))
 			tryWrite();
 	}
 }
@@ -208,11 +257,11 @@ void AIBridge::tryAccept()
 {
 	struct sockaddr_in clientAddr;
 	socklen_t addrLen = sizeof(clientAddr);
-	int fd = accept(_listenFd, (struct sockaddr*)&clientAddr, &addrLen);
-	if (fd < 0) return;
+	socket_t fd = accept(_listenFd, (struct sockaddr*)&clientAddr, &addrLen);
+	if (fd == SOCKET_INVALID) return;
 
 	// Drop existing client if any (allows reconnection)
-	if (_clientFd >= 0)
+	if (_clientFd != SOCKET_INVALID)
 	{
 		Log(LOG_INFO) << "AIBridge: dropping old client for new connection";
 		closeClient();
@@ -241,7 +290,7 @@ void AIBridge::tryAccept()
 void AIBridge::tryRead()
 {
 	char buf[4096];
-	ssize_t n = recv(_clientFd, buf, sizeof(buf), 0);
+	int n = recv(_clientFd, buf, sizeof(buf), 0);
 	if (n <= 0)
 	{
 		if (n == 0)
@@ -249,9 +298,9 @@ void AIBridge::tryRead()
 			Log(LOG_INFO) << "AIBridge: client disconnected";
 			closeClient();
 		}
-		else if (errno != EAGAIN && errno != EWOULDBLOCK)
+		else if (SOCK_ERRNO != SOCK_EAGAIN && SOCK_ERRNO != SOCK_EWOULDBLOCK)
 		{
-			Log(LOG_WARNING) << "AIBridge: recv error: " << strerror(errno);
+			Log(LOG_WARNING) << "AIBridge: recv error: " << socketError();
 			closeClient();
 		}
 		return;
@@ -278,12 +327,12 @@ void AIBridge::tryWrite()
 {
 	if (_sendBuf.empty()) return;
 
-	ssize_t n = send(_clientFd, _sendBuf.c_str(), _sendBuf.size(), 0);
+	int n = send(_clientFd, _sendBuf.c_str(), (int)_sendBuf.size(), 0);
 	if (n < 0)
 	{
-		if (errno != EAGAIN && errno != EWOULDBLOCK)
+		if (SOCK_ERRNO != SOCK_EAGAIN && SOCK_ERRNO != SOCK_EWOULDBLOCK)
 		{
-			Log(LOG_WARNING) << "AIBridge: send error: " << strerror(errno);
+			Log(LOG_WARNING) << "AIBridge: send error: " << socketError();
 			closeClient();
 		}
 		return;
@@ -450,7 +499,7 @@ void AIBridge::processMessage(const std::string &line)
  */
 void AIBridge::sendMessage(const nlohmann::json &msg)
 {
-	if (_clientFd < 0) return;
+	if (_clientFd == SOCKET_INVALID) return;
 	_sendBuf += msg.dump() + "\n";
 }
 
@@ -459,10 +508,10 @@ void AIBridge::sendMessage(const nlohmann::json &msg)
  */
 void AIBridge::closeClient()
 {
-	if (_clientFd >= 0)
+	if (_clientFd != SOCKET_INVALID)
 	{
-		close(_clientFd);
-		_clientFd = -1;
+		socket_close(_clientFd);
+		_clientFd = SOCKET_INVALID;
 	}
 	_recvBuf.clear();
 	_sendBuf.clear();
@@ -517,7 +566,7 @@ void AIBridge::notifyTurnStart(int turn, Language *lang)
  */
 void AIBridge::notifyBattleEnd(const std::string &result)
 {
-	if (!_enabled || _clientFd < 0) return;
+	if (!_enabled || _clientFd == SOCKET_INVALID) return;
 
 	nlohmann::json msg;
 	msg["type"] = "mission_end";
@@ -572,13 +621,17 @@ void AIBridge::notifyBattleEnd(const std::string &result)
 	// Flush immediately — this is the last message before the battlescape
 	// is torn down and the socket closed. tryWrite() alone may not send
 	// everything on a non-blocking socket, so loop with a short timeout.
-	for (int attempt = 0; attempt < 50 && !_sendBuf.empty() && _clientFd >= 0; ++attempt)
+	for (int attempt = 0; attempt < 50 && !_sendBuf.empty() && _clientFd != SOCKET_INVALID; ++attempt)
 	{
 		tryWrite();
 		if (!_sendBuf.empty())
 		{
 			// Brief sleep to let the kernel drain the send buffer
+#ifdef _WIN32
+			Sleep(10);
+#else
 			usleep(10000); // 10ms
+#endif
 		}
 	}
 }
@@ -588,7 +641,7 @@ void AIBridge::notifyBattleEnd(const std::string &result)
  */
 bool AIBridge::isConnected() const
 {
-	return _clientFd >= 0;
+	return _clientFd != SOCKET_INVALID;
 }
 
 /**

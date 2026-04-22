@@ -23,6 +23,19 @@
 #include "Position.h"
 #include "../lib/nlohmann/json.hpp"
 
+// Cross-platform socket type
+#ifdef _WIN32
+  #ifndef NOMINMAX
+  #define NOMINMAX
+  #endif
+  #include <winsock2.h>
+  typedef SOCKET socket_t;
+  #define SOCKET_INVALID INVALID_SOCKET
+#else
+  typedef int socket_t;
+  #define SOCKET_INVALID (-1)
+#endif
+
 namespace OpenXcom
 {
 
@@ -59,8 +72,8 @@ struct AICommand
 class AIBridge
 {
 private:
-	int _listenFd;        /// listening socket file descriptor
-	int _clientFd;        /// connected client fd (-1 if none)
+	socket_t _listenFd;   /// listening socket file descriptor
+	socket_t _clientFd;   /// connected client fd (SOCKET_INVALID if none)
 	int _port;            /// TCP port
 	bool _enabled;        /// server is listening
 	std::string _recvBuf; /// partial receive buffer
@@ -85,7 +98,7 @@ private:
 	/// Returns true if a tile should be shown on the ASCII map (fog of war check).
 	bool isTileVisible(Tile *tile) const;
 	/// Sets a file descriptor to non-blocking mode.
-	bool setNonBlocking(int fd);
+	bool setNonBlocking(socket_t fd);
 	/// Tries to accept a pending connection.
 	void tryAccept();
 	/// Reads available data from client (non-blocking).
