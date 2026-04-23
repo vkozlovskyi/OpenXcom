@@ -9,6 +9,7 @@ Usage:
     python3 xcom_cmd.py --status
     python3 xcom_cmd.py --turn-state
     python3 xcom_cmd.py --events
+    python3 xcom_cmd.py --raw '{"action":"get_state"}'   # raw JSON output
 
 Batch queries (read-only, array syntax):
     python3 xcom_cmd.py '[{"action":"get_path_cost","unit_id":1,"target":[8,17,0]},
@@ -245,7 +246,14 @@ def main():
         print("  python3 xcom_cmd.py '{\"action\":\"end_turn\"}'")
         sys.exit(0)
 
-    arg = sys.argv[1]
+    raw = "--raw" in sys.argv
+    args = [a for a in sys.argv[1:] if a != "--raw"]
+
+    if not args:
+        print("Usage: python3 xcom_cmd.py [--raw] '<json command>'")
+        sys.exit(0)
+
+    arg = args[0]
 
     # Meta-commands
     if arg == "--status":
@@ -267,6 +275,10 @@ def main():
 
     sock = connect()
     resp = send_recv(sock, msg)
+
+    if raw:
+        print(json.dumps(resp))
+        sys.exit(0)
 
     # Batch response — array of results
     if isinstance(resp, list):

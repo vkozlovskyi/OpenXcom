@@ -592,6 +592,9 @@ python3 xcom_cmd.py '{"action":"get_blast_check","target":[12,10,0],"radius":3}'
 python3 xcom_cmd.py '{"action":"get_launch_path","unit_id":3,"target":[12,10,0],"waypoints":[[15,20,4],[12,15,4]]}'
 python3 xcom_cmd.py '{"action":"end_turn"}'
 
+# Raw JSON output (for scripting / piping into other tools)
+python3 xcom_cmd.py --raw '{"action":"get_state","include_map":true}'
+
 # Meta-commands (proxy-specific)
 python3 xcom_cmd.py --status        # TCP connection status, buffer state
 python3 xcom_cmd.py --turn-state    # Buffered turn_start (call once per turn)
