@@ -7,6 +7,7 @@ set -eu
 PORT=12345
 EXE=""
 for candidate in \
+    build/openxcom.app/Contents/MacOS/openxcom \
     build/bin/openxcom \
     build/bin/Release/openxcom \
     build/bin/Debug/openxcom \
