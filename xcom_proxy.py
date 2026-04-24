@@ -1,20 +1,27 @@
 #!/usr/bin/env python3
-"""Persistent TCP-to-Unix-socket proxy for OpenXcom AI Bridge.
+"""Persistent proxy for OpenXcom AI Bridge.
 
-Maintains a single TCP connection to AIBridge and exposes a Unix socket
-for lightweight per-command CLI access. Buffers push messages (turn_start,
-mission_end) so CLI clients only receive command responses.
+Maintains a single TCP connection to AIBridge and exposes a local CLI
+transport for lightweight per-command access: Unix socket on POSIX,
+TCP loopback on Windows. Buffers push messages (turn_start, mission_end)
+so CLI clients only receive command responses.
 
 Usage:
     python3 xcom_proxy.py [--verbose]
 """
 
-import socket, select, json, logging, os, sys, signal, time, errno
+import socket, select, json, logging, os, sys, signal, time, errno, tempfile
 
 TCP_HOST = "127.0.0.1"
 TCP_PORT = 12345
-UNIX_SOCK = "/tmp/xcom_proxy.sock"
-LOG_FILE = "/tmp/xcom_proxy.log"
+
+# CLI transport: Unix socket on POSIX, TCP loopback on Windows.
+IS_WINDOWS = sys.platform == "win32"
+CLI_SOCK_PATH = "/tmp/xcom_proxy.sock"
+CLI_TCP_HOST = "127.0.0.1"
+CLI_TCP_PORT = 12346
+LOG_FILE = "/tmp/xcom_proxy.log" if not IS_WINDOWS else os.path.join(tempfile.gettempdir(), "xcom_proxy.log")
+
 TCP_RECONNECT_INTERVAL = 2.0
 COMMAND_TIMEOUT = 60.0
 
@@ -31,9 +38,9 @@ class XcomProxy:
     def __init__(self):
         self.tcp_sock = None
         self.tcp_buf = b""
-        self.unix_listen = None
-        self.unix_client = None
-        self.unix_buf = b""
+        self.cli_listen = None
+        self.cli_client = None
+        self.cli_buf = b""
         self.last_turn_start = None
         self.last_mission_end = None
         self.buffered_pushes = []
@@ -54,10 +61,14 @@ class XcomProxy:
     def start(self):
         self._setup_logging()
         self._setup_signals()
-        self._setup_unix_socket()
+        self._setup_cli_socket()
         self.connect_tcp()
-        log.info("Proxy started, Unix socket: %s", UNIX_SOCK)
+        log.info("Proxy started, CLI transport: %s", self._cli_addr_str())
         self.run()
+
+    @staticmethod
+    def _cli_addr_str():
+        return f"tcp://{CLI_TCP_HOST}:{CLI_TCP_PORT}" if IS_WINDOWS else CLI_SOCK_PATH
 
     def _setup_logging(self):
         fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
@@ -77,14 +88,19 @@ class XcomProxy:
         signal.signal(signal.SIGINT, handler)
         signal.signal(signal.SIGTERM, handler)
 
-    def _setup_unix_socket(self):
-        if os.path.exists(UNIX_SOCK):
-            os.unlink(UNIX_SOCK)
-        self.unix_listen = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.unix_listen.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.unix_listen.bind(UNIX_SOCK)
-        self.unix_listen.listen(2)
-        self.unix_listen.setblocking(False)
+    def _setup_cli_socket(self):
+        if IS_WINDOWS:
+            self.cli_listen = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.cli_listen.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.cli_listen.bind((CLI_TCP_HOST, CLI_TCP_PORT))
+        else:
+            if os.path.exists(CLI_SOCK_PATH):
+                os.unlink(CLI_SOCK_PATH)
+            self.cli_listen = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.cli_listen.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.cli_listen.bind(CLI_SOCK_PATH)
+        self.cli_listen.listen(2)
+        self.cli_listen.setblocking(False)
 
     def connect_tcp(self):
         """Attempt TCP connection to AIBridge. Returns True on success."""
@@ -156,7 +172,7 @@ class XcomProxy:
         self.tcp_sock = None
         self.tcp_buf = b""
         if self.pending_command:
-            self._send_unix({"error": "tcp_disconnected"})
+            self._send_cli({"error": "tcp_disconnected"})
             self.pending_command = False
 
     def _process_tcp_buf(self, is_initial=False):
@@ -199,13 +215,13 @@ class XcomProxy:
             log.info("Mission ended: %s", msg.get("result", "?"))
             # If a command is pending, this IS the terminal response
             if self.pending_command:
-                self._send_unix(msg)
+                self._send_cli(msg)
                 self.pending_command = False
             return
 
         # Terminal response types for commands
         if mtype in TERMINAL_TYPES and self.pending_command:
-            self._send_unix(msg)
+            self._send_cli(msg)
             self.pending_command = False
             return
 
@@ -215,11 +231,11 @@ class XcomProxy:
     def run(self):
         """Main event loop."""
         while self.running:
-            rlist = [self.unix_listen]
+            rlist = [self.cli_listen]
             if self.tcp_sock:
                 rlist.append(self.tcp_sock)
-            if self.unix_client:
-                rlist.append(self.unix_client)
+            if self.cli_client:
+                rlist.append(self.cli_client)
 
             try:
                 ready_r, _, _ = select.select(rlist, [], [], 1.0)
@@ -233,25 +249,25 @@ class XcomProxy:
                 if now - self.last_tcp_connect_attempt >= TCP_RECONNECT_INTERVAL:
                     self.connect_tcp()
 
-            # Accept new Unix client
-            if self.unix_listen in ready_r:
-                self._accept_unix()
+            # Accept new CLI client
+            if self.cli_listen in ready_r:
+                self._accept_cli()
 
             # Read from TCP
             if self.tcp_sock and self.tcp_sock in ready_r:
                 if self._tcp_recv():
                     self._process_tcp_buf()
 
-            # Read from Unix client
-            if self.unix_client and self.unix_client in ready_r:
-                self._read_unix()
+            # Read from CLI client
+            if self.cli_client and self.cli_client in ready_r:
+                self._read_cli()
 
         self.cleanup()
 
-    def _accept_unix(self):
-        """Accept a new Unix socket client."""
+    def _accept_cli(self):
+        """Accept a new CLI client."""
         try:
-            client, _ = self.unix_listen.accept()
+            client, _ = self.cli_listen.accept()
             client.setblocking(True)
         except OSError:
             return
@@ -263,44 +279,44 @@ class XcomProxy:
             except OSError:
                 pass
             client.close()
-            log.debug("Rejected Unix client (busy)")
+            log.debug("Rejected CLI client (busy)")
             return
 
         # Replace any existing idle client
-        if self.unix_client:
+        if self.cli_client:
             try:
-                self.unix_client.close()
+                self.cli_client.close()
             except OSError:
                 pass
-        self.unix_client = client
-        self.unix_buf = b""
-        log.debug("Unix client accepted")
+        self.cli_client = client
+        self.cli_buf = b""
+        log.debug("CLI client accepted")
 
-    def _read_unix(self):
-        """Read command from Unix client."""
+    def _read_cli(self):
+        """Read command from CLI client."""
         try:
-            data = self.unix_client.recv(8192)
+            data = self.cli_client.recv(8192)
             if not data:
-                self._close_unix()
+                self._close_cli()
                 return
-            self.unix_buf += data
+            self.cli_buf += data
         except BlockingIOError:
             return
         except OSError:
-            self._close_unix()
+            self._close_cli()
             return
 
-        if b"\n" not in self.unix_buf:
+        if b"\n" not in self.cli_buf:
             return
 
-        line, self.unix_buf = self.unix_buf.split(b"\n", 1)
+        line, self.cli_buf = self.cli_buf.split(b"\n", 1)
         if not line.strip():
             return
 
         try:
             cmd = json.loads(line)
         except json.JSONDecodeError as e:
-            self._send_unix({"error": f"bad_json: {e}"})
+            self._send_cli({"error": f"bad_json: {e}"})
             return
 
         # Batch query — JSON array of read-only commands
@@ -316,7 +332,7 @@ class XcomProxy:
 
         # Game command — forward to TCP
         if not self.tcp_sock:
-            self._send_unix({"error": "tcp_disconnected"})
+            self._send_cli({"error": "tcp_disconnected"})
             return
 
         action = cmd.get("action", "?")
@@ -339,7 +355,7 @@ class XcomProxy:
             remaining = deadline - time.time()
             if remaining <= 0:
                 log.error("Command timeout after %.0fs", COMMAND_TIMEOUT)
-                self._send_unix({"error": "timeout"})
+                self._send_cli({"error": "timeout"})
                 self.pending_command = False
                 return
 
@@ -359,22 +375,22 @@ class XcomProxy:
     def _execute_batch(self, commands):
         """Execute a batch of read-only queries and return array of responses."""
         if not isinstance(commands, list) or len(commands) == 0:
-            self._send_unix({"error": "batch_empty"})
+            self._send_cli({"error": "batch_empty"})
             return
 
         # Validate: all commands must be read-only queries
         for i, cmd in enumerate(commands):
             if not isinstance(cmd, dict):
-                self._send_unix({"error": f"batch[{i}]: not an object"})
+                self._send_cli({"error": f"batch[{i}]: not an object"})
                 return
             action = cmd.get("action", "")
             if action not in QUERY_ACTIONS:
-                self._send_unix({"error": f"batch[{i}]: '{action}' is not a read-only query. "
+                self._send_cli({"error": f"batch[{i}]: '{action}' is not a read-only query. "
                                  f"Allowed: {', '.join(sorted(QUERY_ACTIONS))}"})
                 return
 
         if not self.tcp_sock:
-            self._send_unix({"error": "tcp_disconnected"})
+            self._send_cli({"error": "tcp_disconnected"})
             return
 
         log.info("Batch query: %d commands", len(commands))
@@ -392,8 +408,8 @@ class XcomProxy:
             self._track_recv(resp_bytes)
             results.append(resp)
 
-        # Send combined result (don't double-count in _send_unix)
-        self._send_unix_raw(results)
+        # Send combined result (don't double-count in _send_cli)
+        self._send_cli_raw(results)
 
     def _forward_one(self, cmd):
         """Forward a single command to TCP, wait for response. Returns response dict or None on TCP loss."""
@@ -430,7 +446,7 @@ class XcomProxy:
             if ready:
                 if not self._tcp_recv():
                     return None
-                # Process buffer but capture response instead of sending to unix
+                # Process buffer but capture response instead of sending to cli
                 self._process_tcp_buf_capture()
                 if self._captured_response is not None:
                     captured = self._captured_response
@@ -440,7 +456,7 @@ class XcomProxy:
         return captured
 
     def _process_tcp_buf_capture(self):
-        """Like _process_tcp_buf but captures terminal response instead of sending to unix."""
+        """Like _process_tcp_buf but captures terminal response instead of sending to cli."""
         while b"\n" in self.tcp_buf:
             line, self.tcp_buf = self.tcp_buf.split(b"\n", 1)
             if not line.strip():
@@ -477,7 +493,7 @@ class XcomProxy:
     def _handle_meta(self, meta):
         """Handle proxy meta-commands."""
         if meta == "__status__":
-            self._send_unix({
+            self._send_cli({
                 "status": "connected" if self.tcp_sock else "disconnected",
                 "has_turn_start": self.last_turn_start is not None,
                 "has_mission_end": self.last_mission_end is not None,
@@ -485,19 +501,19 @@ class XcomProxy:
             })
         elif meta == "__turn_state__":
             if self.last_turn_start:
-                self._send_unix(self.last_turn_start)
+                self._send_cli(self.last_turn_start)
             else:
-                self._send_unix({"error": "no_turn_start"})
+                self._send_cli({"error": "no_turn_start"})
         elif meta == "__events__":
-            self._send_unix({"events": self.buffered_pushes})
+            self._send_cli({"events": self.buffered_pushes})
             self.buffered_pushes = []
         elif meta == "__mission_end__":
             if self.last_mission_end:
-                self._send_unix(self.last_mission_end)
+                self._send_cli(self.last_mission_end)
             else:
-                self._send_unix({"error": "no_mission_end"})
+                self._send_cli({"error": "no_mission_end"})
         elif meta == "__stats__":
-            self._send_unix({
+            self._send_cli({
                 "current_turn": self._current_turn,
                 "turn_cmds": self._turn_cmds,
                 "turn_sent_tokens": self._turn_sent_bytes // 4,
@@ -508,7 +524,7 @@ class XcomProxy:
                 "turn_history": self._turn_history,
             })
         else:
-            self._send_unix({"error": f"unknown_meta: {meta}"})
+            self._send_cli({"error": f"unknown_meta: {meta}"})
 
     def _track_sent(self, nbytes):
         """Track bytes sent to game."""
@@ -539,52 +555,52 @@ class XcomProxy:
         self._turn_sent_bytes = 0
         self._turn_recv_bytes = 0
 
-    def _send_unix_raw(self, msg):
-        """Send JSON response to Unix client without tracking recv bytes."""
-        if not self.unix_client:
+    def _send_cli_raw(self, msg):
+        """Send JSON response to CLI client without tracking recv bytes."""
+        if not self.cli_client:
             return
         try:
             data = json.dumps(msg, separators=(",", ":")).encode() + b"\n"
-            self.unix_client.sendall(data)
-            self.unix_client.shutdown(socket.SHUT_WR)
+            self.cli_client.sendall(data)
+            self.cli_client.shutdown(socket.SHUT_WR)
         except (BrokenPipeError, ConnectionResetError, OSError) as e:
-            log.warning("Unix send failed: %s", e)
-        self._close_unix()
+            log.warning("CLI send failed: %s", e)
+        self._close_cli()
 
-    def _send_unix(self, msg):
-        """Send JSON response to Unix client and close it."""
-        if not self.unix_client:
+    def _send_cli(self, msg):
+        """Send JSON response to CLI client and close it."""
+        if not self.cli_client:
             return
         try:
             data = json.dumps(msg, separators=(",", ":")).encode() + b"\n"
             self._track_recv(len(data))
-            self.unix_client.sendall(data)
-            self.unix_client.shutdown(socket.SHUT_WR)
+            self.cli_client.sendall(data)
+            self.cli_client.shutdown(socket.SHUT_WR)
         except (BrokenPipeError, ConnectionResetError, OSError) as e:
-            log.warning("Unix send failed: %s", e)
-        self._close_unix()
+            log.warning("CLI send failed: %s", e)
+        self._close_cli()
 
-    def _close_unix(self):
-        """Close Unix client socket."""
-        if self.unix_client:
+    def _close_cli(self):
+        """Close CLI client socket."""
+        if self.cli_client:
             try:
-                self.unix_client.close()
+                self.cli_client.close()
             except OSError:
                 pass
-            self.unix_client = None
-            self.unix_buf = b""
+            self.cli_client = None
+            self.cli_buf = b""
 
     def cleanup(self):
         """Clean shutdown."""
         log.info("Cleaning up")
-        if self.unix_client:
+        if self.cli_client:
             try:
-                self.unix_client.close()
+                self.cli_client.close()
             except OSError:
                 pass
-        if self.unix_listen:
+        if self.cli_listen:
             try:
-                self.unix_listen.close()
+                self.cli_listen.close()
             except OSError:
                 pass
         if self.tcp_sock:
@@ -592,8 +608,8 @@ class XcomProxy:
                 self.tcp_sock.close()
             except OSError:
                 pass
-        if os.path.exists(UNIX_SOCK):
-            os.unlink(UNIX_SOCK)
+        if not IS_WINDOWS and os.path.exists(CLI_SOCK_PATH):
+            os.unlink(CLI_SOCK_PATH)
         log.info("Proxy stopped")
 
 

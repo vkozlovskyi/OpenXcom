@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""CLI tool to send commands to xcom_proxy via Unix socket.
+"""CLI tool to send commands to xcom_proxy.
+
+Uses Unix socket on POSIX, TCP loopback on Windows — must match the
+transport xcom_proxy is listening on.
 
 Usage:
     python3 xcom_cmd.py '{"action":"walk","unit_id":1,"target":[13,18,0]}'
@@ -19,17 +22,26 @@ Batch queries (read-only, array syntax):
 
 import socket, json, sys, os
 
-UNIX_SOCK = "/tmp/xcom_proxy.sock"
+from xcom_proxy import IS_WINDOWS, CLI_SOCK_PATH, CLI_TCP_HOST, CLI_TCP_PORT
+
 RECV_BUF = 1 << 20  # 1MB — large enough for any response
 
 
 def connect():
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    try:
-        sock.connect(UNIX_SOCK)
-    except (FileNotFoundError, ConnectionRefusedError):
-        print("ERROR: Cannot connect to proxy. Is xcom_proxy.py running?", file=sys.stderr)
-        sys.exit(1)
+    if IS_WINDOWS:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.connect((CLI_TCP_HOST, CLI_TCP_PORT))
+        except (ConnectionRefusedError, OSError):
+            print("ERROR: Cannot connect to proxy. Is xcom_proxy.py running?", file=sys.stderr)
+            sys.exit(1)
+    else:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.connect(CLI_SOCK_PATH)
+        except (FileNotFoundError, ConnectionRefusedError):
+            print("ERROR: Cannot connect to proxy. Is xcom_proxy.py running?", file=sys.stderr)
+            sys.exit(1)
     return sock
 
 
