@@ -5,14 +5,16 @@
 set -eu
 
 PORT=12345
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+
 EXE=""
 for candidate in \
-    build/openxcom.app/Contents/MacOS/openxcom \
-    build/bin/openxcom \
-    build/bin/Release/openxcom \
-    build/bin/Debug/openxcom \
-    bin/openxcom \
-    ./openxcom; do
+    "$ROOT/build/openxcom.app/Contents/MacOS/openxcom" \
+    "$ROOT/build/bin/openxcom" \
+    "$ROOT/build/bin/Release/openxcom" \
+    "$ROOT/build/bin/Debug/openxcom" \
+    "$ROOT/bin/openxcom" \
+    "$ROOT/openxcom"; do
   if [ -x "$candidate" ]; then
     EXE="$candidate"
     break
@@ -30,4 +32,6 @@ if [ -z "$EXE" ]; then
   exit 1
 fi
 
+# CD into the exe's directory so OpenXcom finds standard/ and UFO/ data folders.
+cd "$(dirname "$EXE")"
 exec "$EXE" -ai-server "$PORT" "$@"
